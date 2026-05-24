@@ -1,0 +1,64 @@
+# Google Gemini SDK (synthesis LLM — replaces Anthropic for Phase 2+)
+google-genai>=1.0.0
+
+# Voyage AI embeddings
+voyageai==0.3.7
+
+# Postgres driver (psycopg3)
+psycopg[binary]==3.2.3
+
+# pgvector Python client
+pgvector==0.3.6
+
+# ORM + migrations (asyncio extra pulls in greenlet)
+sqlalchemy[asyncio]==2.0.36
+alembic==1.14.0
+
+# PDF parsing
+pdfplumber==0.11.4
+
+# Extended document parsers
+pydicom==3.0.1
+python-docx==1.1.2
+openpyxl==3.1.5
+
+# HL7 v2 parsing
+hl7==0.4.5
+
+# Token counting
+tiktoken==0.8.0
+
+# Config / env
+python-dotenv==1.0.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Auth — JWT + password hashing
+# Note: bcrypt is pinned <4.1 because passlib 1.7.4 reads `bcrypt.__about__` which
+# bcrypt removed in 4.1+. Re-evaluate when migrating off passlib (Phase 5).
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+slowapi==0.1.9
+
+# Task queue
+celery==5.4.0
+redis==5.2.1
+
+# Observability
+structlog==24.4.0
+prometheus-fastapi-instrumentator==7.0.0
+
+# AWS S3 — async client used in core/s3.py. boto3 is pulled in transitively
+# by aioboto3 with a narrow pin (1.35.36), so we don't pin it explicitly.
+aioboto3==13.2.0
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1

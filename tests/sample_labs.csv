@@ -1,0 +1,11 @@
+test_date,observation,value,unit,reference_range,note
+2025-11-01,hemoglobin,13.4,g/dL,12.0-17.5,within normal limits
+2025-11-01,white_blood_cell_count,8.2,10^9/L,4.0-11.0,within normal limits
+2025-11-01,platelet_count,245,10^9/L,150-400,within normal limits
+2025-11-01,glucose_fasting,102,mg/dL,70-99,slightly elevated
+2025-11-01,creatinine,0.9,mg/dL,0.7-1.3,within normal limits
+2025-11-01,blood_pressure_systolic,128,mmHg,90-120,mildly elevated
+2025-11-01,blood_pressure_diastolic,82,mmHg,60-80,mildly elevated
+2025-11-01,heart_rate,72,bpm,60-100,within normal limits
+2025-11-01,total_cholesterol,195,mg/dL,less_than_200,within normal limits
+2025-11-01,ldl_cholesterol,118,mg/dL,less_than_100,slightly elevated

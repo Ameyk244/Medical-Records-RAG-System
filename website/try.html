@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Ingest patient documents and run natural-language queries against the MedRecords RAG API." />
+  <title>Try the API · MedRecords RAG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+  <!-- ─── NAV ───────────────────────────────────────────────── -->
+  <header>
+    <nav class="nav" id="mainNav" aria-label="Main navigation">
+      <div class="nav-inner">
+        <a href="index.html" class="nav-brand" aria-label="MedRecords RAG home">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#14f1fa" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="4" fill="#14f1fa"/>
+          </svg>
+          MEDRECORDS·RAG
+        </a>
+        <ul class="nav-links" role="list">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="auth.html">Auth</a></li>
+          <li>
+            <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" class="nav-github" target="_blank" rel="noopener noreferrer">
+              GitHub →
+            </a>
+          </li>
+          <li><span data-nav-status></span></li>
+        </ul>
+        <button class="nav-hamburger" id="hamburgerBtn" aria-label="Toggle navigation menu" aria-expanded="false">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+      </div>
+      <div class="nav-mobile" id="mobileMenu" role="navigation" aria-label="Mobile navigation">
+        <a href="index.html">Home</a>
+        <a href="auth.html">Auth / Login</a>
+        <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" target="_blank" rel="noopener noreferrer">GitHub →</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ─── PAGE HERO ─────────────────────────────────────────── -->
+    <section class="page-hero">
+      <div class="container">
+        <span class="label">live demo</span>
+        <h1>Ingest a document. Ask a question.</h1>
+        <p class="muted">Real calls to <code>http://localhost:8000</code>. Real Voyage embeddings, real Claude synthesis, real pgvector retrieval.</p>
+      </div>
+    </section>
+
+    <!-- ─── LIVE API PANELS ───────────────────────────────────── -->
+    <section class="live-api" aria-label="Live API demo panels">
+
+      <!-- Status bar -->
+      <div class="status-bar" data-nav-status></div>
+
+      <!-- Login required prompt (shown when not authenticated) -->
+      <div id="login-required" class="card centered" hidden>
+        <h3>Login required</h3>
+        <p>You need an access token to call /ingest and /query.</p>
+        <a class="btn-primary" href="auth.html">Go to Login →</a>
+        <p class="muted small">Login with <code>admin</code> / <code>password123</code> to get started.</p>
+      </div>
+
+      <!-- 1. Ingest -->
+      <details open class="card auth-required">
+        <summary>1 &middot; Ingest a document</summary>
+        <div class="panel-body">
+          <label>file
+            <input id="ing-file" type="file">
+          </label>
+          <label>patient_id
+            <input id="ing-patient" value="P123">
+          </label>
+          <label>source_type
+            <select id="ing-type">
+              <option>pdf</option>
+              <option selected>csv</option>
+              <option>fhir_json</option>
+              <option>hl7</option>
+              <option>dicom_meta</option>
+              <option>ccd_xml</option>
+              <option>txt</option>
+              <option>docx</option>
+              <option>xlsx</option>
+            </select>
+          </label>
+          <label>document_date (optional)
+            <input id="ing-date" type="date">
+          </label>
+          <button class="btn-primary" id="ing-btn">Ingest</button>
+          <div class="response" id="ing-response">No request yet.</div>
+          <p class="muted small">Returns a task_id immediately. Run a Celery worker to actually process the upload.</p>
+        </div>
+      </details>
+
+      <!-- 2. Query -->
+      <details open class="card auth-required">
+        <summary>2 &middot; Query</summary>
+        <div class="panel-body">
+          <label>patient_id
+            <input id="q-patient" value="P123">
+          </label>
+          <label>query_text
+            <textarea id="q-text">What lab values were elevated?</textarea>
+          </label>
+          <button class="btn-primary" id="q-btn">Run query</button>
+          <div id="q-cache-wrap"></div>
+          <div class="response" id="q-response">No request yet.</div>
+          <p class="muted small">Try the same query twice — second response should show <code>x-cache: hit</code>.</p>
+        </div>
+      </details>
+
+    </section>
+
+  </main>
+
+  <!-- ─── FOOTER ───────────────────────────────────────────── -->
+  <footer class="footer" aria-label="Site footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#14f1fa" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="4" fill="#14f1fa"/>
+          </svg>
+          Medical Records RAG &middot; MIT License
+        </div>
+        <div class="footer-right">
+          Built with FastAPI &middot; pgvector &middot; Voyage &middot; Claude
+        </div>
+      </div>
+      <p class="footer-note">
+        2026 &middot; This is a portfolio project. Not a HIPAA-certified product. Validate before clinical use.
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var loginRequired = document.getElementById('login-required');
+        var authPanels = document.querySelectorAll('.auth-required');
+
+        /* ── Auth gate ── */
+        function applyAuthState() {
+          if (!MedRag.state.access_token) {
+            /* Not logged in: show prompt, hide protected panels */
+            if (loginRequired) loginRequired.hidden = false;
+            authPanels.forEach(function (el) { el.hidden = true; });
+          } else {
+            /* Logged in: hide prompt, show panels */
+            if (loginRequired) loginRequired.hidden = true;
+            authPanels.forEach(function (el) { el.hidden = false; });
+          }
+        }
+
+        applyAuthState();
+
+        /* ── 1. INGEST ── */
+        var ingBtn = document.getElementById('ing-btn');
+        var ingResp = document.getElementById('ing-response');
+
+        if (ingBtn) {
+          ingBtn.addEventListener('click', async function () {
+            var fileInput = document.getElementById('ing-file');
+            if (!fileInput.files || fileInput.files.length === 0) {
+              ingResp.classList.remove('ok');
+              ingResp.classList.add('err');
+              ingResp.textContent = 'Please pick a file first.';
+              return;
+            }
+
+            var patientId  = document.getElementById('ing-patient').value.trim();
+            var sourceType = document.getElementById('ing-type').value;
+            var docDate    = document.getElementById('ing-date').value;
+
+            var fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            fd.append('patient_id', patientId);
+            fd.append('source_type', sourceType);
+            if (docDate) fd.append('document_date', docDate);
+
+            ingResp.textContent = 'Sending request...';
+            ingResp.classList.remove('ok', 'err');
+
+            var result;
+            try {
+              /* Do NOT set Content-Type — browser must set it with the multipart boundary */
+              var headers = {};
+              if (MedRag.state.access_token) {
+                headers['Authorization'] = 'Bearer ' + MedRag.state.access_token;
+              }
+              var resp = await fetch(MedRag.API_BASE + '/ingest', {
+                method: 'POST',
+                headers: headers,
+                body: fd,
+              });
+              var text = await resp.text();
+              var json = null;
+              try { json = JSON.parse(text); } catch (_) {}
+              result = { status: resp.status, headers: resp.headers, body: json !== null ? json : text };
+            } catch (e) {
+              ingResp.classList.add('err');
+              ingResp.textContent = 'Network error: ' + e.message;
+              return;
+            }
+
+            MedRag.displayResponse(ingResp, result);
+          });
+        }
+
+        /* ── 2. QUERY ── */
+        var qBtn     = document.getElementById('q-btn');
+        var qResp    = document.getElementById('q-response');
+        var cacheWrap = document.getElementById('q-cache-wrap');
+
+        if (qBtn) {
+          qBtn.addEventListener('click', async function () {
+            var patient_id  = document.getElementById('q-patient').value.trim();
+            var query_text  = document.getElementById('q-text').value.trim();
+            qResp.textContent = 'Sending request...';
+            qResp.classList.remove('ok', 'err');
+            if (cacheWrap) cacheWrap.innerHTML = '';
+
+            var result;
+            try {
+              result = await MedRag.call('/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ patient_id: patient_id, query_text: query_text }),
+              });
+            } catch (e) {
+              qResp.classList.add('err');
+              qResp.textContent = 'Network error: ' + e.message;
+              return;
+            }
+
+            /* X-Cache badge */
+            if (cacheWrap) {
+              var cacheVal = result.headers.get('X-Cache');
+              if (cacheVal) {
+                cacheWrap.innerHTML =
+                  'X-Cache: <span class="cache-badge">' + cacheVal + '</span>';
+              }
+            }
+
+            /* Pretty-print with citations */
+            if (
+              result.status >= 200 &&
+              result.status < 300 &&
+              result.body &&
+              typeof result.body === 'object'
+            ) {
+              var body = result.body;
+              var out = 'HTTP ' + result.status + '\n\n';
+
+              if (body.answer) {
+                out += 'ANSWER\n' + body.answer + '\n';
+              }
+
+              if (body.citations && Array.isArray(body.citations) && body.citations.length > 0) {
+                out += '\nCITATIONS\n';
+                body.citations.forEach(function (c, i) {
+                  if (typeof c === 'string') {
+                    out += '  [' + (i + 1) + '] ' + c + '\n';
+                  } else if (typeof c === 'object') {
+                    var label = c.source || c.document_id || c.chunk_id || JSON.stringify(c);
+                    out += '  [' + (i + 1) + '] ' + label + '\n';
+                  }
+                });
+              }
+
+              if (!body.answer) {
+                out += JSON.stringify(body, null, 2);
+              }
+
+              qResp.classList.add('ok');
+              qResp.textContent = out;
+            } else {
+              MedRag.displayResponse(qResp, result);
+            }
+          });
+        }
+
+      }); /* end DOMContentLoaded */
+
+    })();
+  </script>
+
+</body>
+</html>

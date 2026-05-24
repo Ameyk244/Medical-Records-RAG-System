@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Login, register and manage tokens for the MedRecords RAG API." />
+  <title>Auth · MedRecords RAG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+  <!-- ─── NAV ───────────────────────────────────────────────── -->
+  <header>
+    <nav class="nav" id="mainNav" aria-label="Main navigation">
+      <div class="nav-inner">
+        <a href="index.html" class="nav-brand" aria-label="MedRecords RAG home">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#14f1fa" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="4" fill="#14f1fa"/>
+          </svg>
+          MEDRECORDS·RAG
+        </a>
+        <ul class="nav-links" role="list">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="try.html">Try API</a></li>
+          <li>
+            <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" class="nav-github" target="_blank" rel="noopener noreferrer">
+              GitHub →
+            </a>
+          </li>
+          <li><span data-nav-status></span></li>
+        </ul>
+        <button class="nav-hamburger" id="hamburgerBtn" aria-label="Toggle navigation menu" aria-expanded="false">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+      </div>
+      <div class="nav-mobile" id="mobileMenu" role="navigation" aria-label="Mobile navigation">
+        <a href="index.html">Home</a>
+        <a href="try.html">Try API</a>
+        <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" target="_blank" rel="noopener noreferrer">GitHub →</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ─── PAGE HERO ─────────────────────────────────────────── -->
+    <section class="page-hero">
+      <div class="container">
+        <span class="label">authentication</span>
+        <h1>Login, register, refresh</h1>
+        <p class="muted">Default users: <code>admin</code> / <code>doctor1</code> — both with password <code>password123</code>.</p>
+      </div>
+    </section>
+
+    <!-- ─── LIVE API PANELS ───────────────────────────────────── -->
+    <section class="live-api" aria-label="Authentication API panels">
+
+      <!-- Status bar -->
+      <div class="status-bar" data-nav-status></div>
+
+      <!-- 1. Login -->
+      <details open class="card">
+        <summary>1 &middot; Login</summary>
+        <div class="panel-body">
+          <label>username
+            <input id="login-username" value="admin" autocomplete="username">
+          </label>
+          <label>password
+            <input id="login-password" type="password" value="password123" autocomplete="current-password">
+          </label>
+          <button class="btn-primary" id="login-btn">Login</button>
+          <div class="response" id="login-response">No request yet.</div>
+        </div>
+      </details>
+
+      <!-- 2. Register -->
+      <details class="card">
+        <summary>2 &middot; Register a new user (admin only)</summary>
+        <div class="panel-body">
+          <label>username
+            <input id="reg-username" placeholder="nurse_jane" autocomplete="off">
+          </label>
+          <label>password
+            <input id="reg-password" type="password" value="supersecret1" autocomplete="new-password">
+          </label>
+          <label>role
+            <select id="reg-role">
+              <option>clinician</option>
+              <option>admin</option>
+              <option>readonly</option>
+            </select>
+          </label>
+          <button class="btn-primary" id="reg-btn">Register</button>
+          <div class="response" id="reg-response">No request yet.</div>
+        </div>
+      </details>
+
+      <!-- 3. Refresh -->
+      <details class="card">
+        <summary>3 &middot; Refresh access token</summary>
+        <div class="panel-body">
+          <p class="muted">Uses the refresh_token captured during login. No input needed.</p>
+          <button class="btn-primary" id="refresh-btn">Refresh</button>
+          <div class="response" id="refresh-response">No request yet.</div>
+        </div>
+      </details>
+
+      <!-- 4. Logout -->
+      <details class="card">
+        <summary>4 &middot; Logout</summary>
+        <div class="panel-body">
+          <p class="muted">Blacklists the current access token and revokes all refresh tokens for this user.</p>
+          <button class="btn-primary" id="logout-btn">Logout</button>
+          <div class="response" id="logout-response">No request yet.</div>
+        </div>
+      </details>
+
+      <p class="centered">
+        <a class="btn-ghost" href="try.html">Go to live demo →</a>
+      </p>
+
+    </section>
+
+  </main>
+
+  <!-- ─── FOOTER ───────────────────────────────────────────── -->
+  <footer class="footer" aria-label="Site footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#14f1fa" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="4" fill="#14f1fa"/>
+          </svg>
+          Medical Records RAG &middot; MIT License
+        </div>
+        <div class="footer-right">
+          Built with FastAPI &middot; pgvector &middot; Voyage &middot; Claude
+        </div>
+      </div>
+      <p class="footer-note">
+        2026 &middot; This is a portfolio project. Not a HIPAA-certified product. Validate before clinical use.
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      document.addEventListener('DOMContentLoaded', function () {
+
+        /* ── 1. LOGIN ── */
+        var loginBtn = document.getElementById('login-btn');
+        var loginResp = document.getElementById('login-response');
+
+        if (loginBtn) {
+          loginBtn.addEventListener('click', async function () {
+            var username = document.getElementById('login-username').value.trim();
+            var password = document.getElementById('login-password').value;
+            loginResp.textContent = 'Sending request...';
+            loginResp.classList.remove('ok', 'err');
+
+            var result;
+            try {
+              result = await MedRag.call('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username, password: password }),
+              });
+            } catch (e) {
+              loginResp.classList.add('err');
+              loginResp.textContent = 'Network error: ' + e.message;
+              return;
+            }
+
+            MedRag.displayResponse(loginResp, result);
+
+            if (result.status === 200 && result.body && result.body.access_token) {
+              MedRag.state.access_token = result.body.access_token;
+              MedRag.state.refresh_token = result.body.refresh_token || null;
+              MedRag.state.username = username;
+              var payload = MedRag.decodeJwt(result.body.access_token);
+              MedRag.state.role = (payload && payload.role) ? payload.role : 'unknown';
+              MedRag.state.exp  = (payload && payload.exp)  ? payload.exp  : null;
+              MedRag.saveState();
+              MedRag.initNav();
+            }
+          });
+        }
+
+        /* ── 2. REGISTER ── */
+        var regBtn = document.getElementById('reg-btn');
+        var regResp = document.getElementById('reg-response');
+
+        if (regBtn) {
+          regBtn.addEventListener('click', async function () {
+            var username = document.getElementById('reg-username').value.trim();
+            var password = document.getElementById('reg-password').value;
+            var role     = document.getElementById('reg-role').value;
+            regResp.textContent = 'Sending request...';
+            regResp.classList.remove('ok', 'err');
+
+            var result;
+            try {
+              result = await MedRag.call('/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username, password: password, role: role }),
+              });
+            } catch (e) {
+              regResp.classList.add('err');
+              regResp.textContent = 'Network error: ' + e.message;
+              return;
+            }
+
+            MedRag.displayResponse(regResp, result);
+          });
+        }
+
+        /* ── 3. REFRESH ── */
+        var refreshBtn = document.getElementById('refresh-btn');
+        var refreshResp = document.getElementById('refresh-response');
+
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', async function () {
+            refreshResp.textContent = 'Sending request...';
+            refreshResp.classList.remove('ok', 'err');
+
+            var result;
+            try {
+              result = await MedRag.call('/auth/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: MedRag.state.refresh_token }),
+              });
+            } catch (e) {
+              refreshResp.classList.add('err');
+              refreshResp.textContent = 'Network error: ' + e.message;
+              return;
+            }
+
+            MedRag.displayResponse(refreshResp, result);
+
+            if (result.status === 200 && result.body && result.body.access_token) {
+              MedRag.state.access_token = result.body.access_token;
+              var payload = MedRag.decodeJwt(result.body.access_token);
+              MedRag.state.exp = (payload && payload.exp) ? payload.exp : null;
+              MedRag.saveState();
+              MedRag.initNav();
+            }
+          });
+        }
+
+        /* ── 4. LOGOUT ── */
+        var logoutBtn = document.getElementById('logout-btn');
+        var logoutResp = document.getElementById('logout-response');
+
+        if (logoutBtn) {
+          logoutBtn.addEventListener('click', async function () {
+            logoutResp.textContent = 'Sending request...';
+            logoutResp.classList.remove('ok', 'err');
+
+            var result;
+            try {
+              result = await MedRag.call('/auth/logout', { method: 'POST' });
+            } catch (e) {
+              logoutResp.classList.add('err');
+              logoutResp.textContent = 'Network error: ' + e.message;
+              return;
+            }
+
+            MedRag.displayResponse(logoutResp, result);
+            MedRag.clearState();
+            MedRag.initNav();
+          });
+        }
+
+      }); /* end DOMContentLoaded */
+
+    })();
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Medical Records RAG — a multi-agent retrieval system that gives clinicians grounded, cited answers from patient records and refuses to hallucinate. HIPAA-aligned, audit-logged, open source." />
+  <title>MedRecords RAG — Cited Clinical Answers, Never Hallucinated</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    /* ─── HERO ──────────────────────────────────────────────── */
+    .hero {
+      padding: 7rem 0 5rem;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 60fr 40fr;
+      gap: 4rem;
+      align-items: center;
+    }
+
+    .hero-label {
+      margin-bottom: 1.25rem;
+    }
+
+    .hero h1 {
+      font-family: 'DM Mono', monospace;
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 500;
+      line-height: 1.05;
+      margin-bottom: 1.25rem;
+    }
+
+    .hero-sub {
+      font-size: 1.15rem;
+      color: var(--text-2);
+      max-width: 30em;
+      line-height: 1.65;
+      margin-bottom: 2.25rem;
+    }
+
+    .hero-ctas {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    /* Hero terminal card */
+    .hero-terminal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid var(--accent);
+    }
+
+    .terminal-meta {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .terminal-body {
+      padding: 1.25rem;
+      min-height: 220px;
+    }
+
+    .terminal-line {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.88rem;
+      line-height: 1.7;
+    }
+
+    .terminal-query {
+      color: var(--accent);
+      display: flex;
+      align-items: flex-start;
+      gap: 0.3rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .terminal-query .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 1em;
+      background: var(--accent);
+      vertical-align: text-bottom;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    .terminal-answer {
+      color: var(--text-2);
+    }
+
+    .terminal-answer-line {
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.25s, transform 0.25s;
+    }
+
+    .terminal-answer-line.visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    .cite-pill {
+      display: inline-block;
+      background: var(--accent-glow);
+      color: var(--accent);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 0.85em;
+      margin: 0 2px;
+    }
+
+    .terminal-footer {
+      padding: 0.75rem 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ─── PROBLEM SECTION ───────────────────────────────────── */
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    }
+
+    .stat-card:hover {
+      border-color: var(--accent-dim);
+      box-shadow: 0 0 24px var(--accent-glow);
+      transform: translateY(-1px);
+    }
+
+    .stat-card .label-small {
+      margin-bottom: 0.75rem;
+      display: block;
+    }
+
+    .stat-number-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 0.25rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .stat-number {
+      font-family: 'DM Mono', monospace;
+      font-size: clamp(3rem, 7vw, 5.5rem);
+      font-weight: 500;
+      line-height: 1;
+      color: var(--text);
+    }
+
+    .stat-suffix {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.1rem;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .stat-desc {
+      font-size: 0.9rem;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+
+    /* ─── SOLUTION SECTION ──────────────────────────────────── */
+    .pipeline-wrap {
+      margin-bottom: 3rem;
+      overflow-x: auto;
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      min-width: 560px;
+    }
+
+    .pipeline-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1rem;
+      min-width: 100px;
+      text-align: center;
+      transition: border-color 0.4s, box-shadow 0.4s, background 0.4s;
+      position: relative;
+      z-index: 1;
+    }
+
+    .pipeline-stage.lit {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px var(--accent-glow);
+      background: var(--surface-2);
+    }
+
+    .pipeline-stage svg {
+      color: var(--muted);
+      transition: color 0.4s;
+    }
+
+    .pipeline-stage.lit svg {
+      color: var(--accent);
+    }
+
+    .pipeline-stage-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      transition: color 0.4s;
+    }
+
+    .pipeline-stage.lit .pipeline-stage-label {
+      color: var(--accent);
+    }
+
+    .pipeline-connector {
+      flex: 1;
+      height: 1px;
+      background: transparent;
+      border-top: 1px dashed var(--border);
+      min-width: 20px;
+      transition: border-color 0.4s;
+    }
+
+    .pipeline-connector.lit {
+      border-color: var(--accent-dim);
+    }
+
+    .code-boxes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    .code-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .code-box-header {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .code-box pre {
+      padding: 1rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.75;
+      color: var(--text-2);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .code-key {
+      color: var(--accent);
+    }
+
+    /* ─── USP SECTION ───────────────────────────────────────── */
+    .usp-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    .usp-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    }
+
+    .usp-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent), 0 0 24px var(--accent-glow);
+      transform: translateY(-1px);
+    }
+
+    .usp-icon {
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+
+    .usp-card h3 {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.25rem;
+      font-weight: 500;
+      line-height: 1.2;
+      margin-bottom: 0.65rem;
+    }
+
+    .usp-card p {
+      font-size: 0.92rem;
+      color: var(--text-2);
+      line-height: 1.6;
+    }
+
+    /* ─── DATA SOURCES ──────────────────────────────────────── */
+    .data-group {
+      margin-bottom: 2rem;
+    }
+
+    .data-group-label {
+      display: block;
+      margin-bottom: 1rem;
+    }
+
+    .pills-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+    }
+
+    /* ─── SECURITY SECTION ──────────────────────────────────── */
+    .security-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: start;
+    }
+
+    .security-body p {
+      color: var(--text-2);
+      font-size: 1rem;
+      line-height: 1.7;
+    }
+
+    .security-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .security-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .security-item-text {
+      font-size: 0.95rem;
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+
+    .check-icon {
+      flex-shrink: 0;
+      color: var(--accent);
+      margin-top: 2px;
+    }
+
+    /* ─── ARCHITECTURE SECTION ──────────────────────────────── */
+    .arch-diagram {
+      position: relative;
+      width: 100%;
+      height: 380px;
+      margin-bottom: 3rem;
+    }
+
+    .arch-node {
+      position: absolute;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 0.75rem 1.25rem;
+      text-align: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-2);
+      white-space: nowrap;
+    }
+
+    .arch-node.orchestrator {
+      border-color: var(--accent);
+      color: var(--accent);
+      font-size: 0.9rem;
+      padding: 1rem 1.75rem;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .arch-svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .arch-labels {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.5rem;
+    }
+
+    .arch-label-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      transition: border-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .arch-label-card:hover {
+      border-color: var(--accent-dim);
+      transform: translateY(-1px);
+    }
+
+    .arch-label-card h4 {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--accent);
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .arch-label-card p {
+      font-size: 0.85rem;
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+
+    /* Mobile arch stacked */
+    .arch-mobile {
+      display: none;
+      flex-direction: column;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+
+    .arch-mobile-node {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.65rem 1.25rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-2);
+      text-align: center;
+      width: 200px;
+    }
+
+    .arch-mobile-node.orchestrator {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .arch-mobile-arrow {
+      color: var(--muted);
+    }
+
+    /* ─── DEMO-CTA SECTION ──────────────────────────────────── */
+    .demo-cta-section {
+      padding: 5rem 0;
+    }
+
+    /* ─── CTA SECTION ───────────────────────────────────────── */
+    .cta-section {
+      padding: 6.25rem 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .cta-section h2 {
+      font-family: 'DM Mono', monospace;
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 500;
+      line-height: 1.1;
+      margin-bottom: 0.75rem;
+    }
+
+    .cta-section p {
+      color: var(--muted);
+      font-size: 1.1rem;
+      margin-bottom: 2rem;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── NAV ───────────────────────────────────────────────── -->
+  <header>
+    <nav class="nav" id="mainNav" aria-label="Main navigation">
+      <div class="nav-inner">
+        <a href="index.html" class="nav-brand" aria-label="MedRecords RAG home">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#14f1fa" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="4" fill="#14f1fa"/>
+          </svg>
+          MEDRECORDS·RAG
+        </a>
+        <ul class="nav-links" role="list">
+          <li><a href="#problem">Problem</a></li>
+          <li><a href="#solution">Solution</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="try.html" class="active">Try API</a></li>
+          <li>
+            <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" class="nav-github" target="_blank" rel="noopener noreferrer">
+              GitHub →
+            </a>
+          </li>
+          <li><span data-nav-status></span></li>
+        </ul>
+        <button class="nav-hamburger" id="hamburgerBtn" aria-label="Toggle navigation menu" aria-expanded="false">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+      </div>
+      <div class="nav-mobile" id="mobileMenu" role="navigation" aria-label="Mobile navigation">
+        <a href="#problem" class="nav-mobile-link">Problem</a>
+        <a href="#solution" class="nav-mobile-link">Solution</a>
+        <a href="#architecture" class="nav-mobile-link">Architecture</a>
+        <a href="try.html">Try API</a>
+        <a href="auth.html">Login</a>
+        <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" target="_blank" rel="noopener noreferrer">GitHub →</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ─── HERO ─────────────────────────────────────────────── -->
+    <section class="hero section" id="hero" aria-label="Hero">
+      <div class="container">
+        <div class="hero-grid">
+
+          <!-- Left column -->
+          <div class="hero-left">
+            <p class="label-accent hero-label">Clinical AI &middot; Grounded &middot; Audited</p>
+            <h1>Cited clinical answers.<br>Never hallucinated.</h1>
+            <p class="hero-sub">
+              A multi-agent retrieval system for patient records. Every answer is grounded in real document chunks, cited inline, and logged to an append-only audit trail enforced at the database level.
+            </p>
+            <div class="hero-ctas">
+              <a href="try.html" class="btn btn-primary">
+                Try the API →
+              </a>
+              <a href="#problem" class="btn btn-outline">
+                See the problem ↓
+              </a>
+            </div>
+          </div>
+
+          <!-- Right column — hero terminal -->
+          <div class="hero-right">
+            <div class="hero-terminal" role="region" aria-label="Live demo terminal">
+              <div class="terminal-header">
+                <div class="terminal-dots" aria-hidden="true">
+                  <div class="terminal-dot"></div>
+                  <div class="terminal-dot"></div>
+                  <div class="terminal-dot"></div>
+                </div>
+                <span class="terminal-meta">patient: P123 &middot; clinician: dr_smith</span>
+              </div>
+              <div class="terminal-body" id="heroTerminalBody">
+                <div class="terminal-line terminal-query">
+                  <span>&gt;&nbsp;</span>
+                  <span id="heroQueryText"></span>
+                  <span class="cursor" id="heroCursor"></span>
+                </div>
+                <div class="terminal-line terminal-answer" id="heroAnswer" aria-live="polite"></div>
+              </div>
+              <div class="terminal-footer">
+                <button class="btn-teal-outline" id="refusalToggleBtn" aria-label="Toggle refusal example">
+                  &#9654; See refusal example
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── PROBLEM SECTION ──────────────────────────────────── -->
+    <section class="section" id="problem" aria-labelledby="problemHeading">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="label-small">The problem</p>
+          <h2 id="problemHeading">The crisis hospitals face today</h2>
+          <p>Modern medicine still runs on records nobody can search and audits nobody can trust.</p>
+        </div>
+
+        <div class="problem-grid">
+
+          <article class="stat-card reveal reveal-delay-1">
+            <span class="label-small">Time Spent</span>
+            <div class="stat-number-wrap">
+              <span class="stat-number" data-target="34" data-decimal="false">0</span>
+              <span class="stat-suffix">%</span>
+            </div>
+            <p class="stat-desc">of a clinician's day spent searching and updating records, not treating patients.</p>
+          </article>
+
+          <article class="stat-card reveal reveal-delay-2">
+            <span class="label-small">Breach Pattern</span>
+            <div class="stat-number-wrap">
+              <span class="stat-number" data-target="65" data-decimal="false">0</span>
+              <span class="stat-suffix">%</span>
+            </div>
+            <p class="stat-desc">of healthcare breaches come from internal access without audit logging.</p>
+          </article>
+
+          <article class="stat-card reveal reveal-delay-3">
+            <span class="label-small">Data Silos</span>
+            <div class="stat-number-wrap">
+              <span class="stat-number" data-target="73" data-decimal="false">0</span>
+              <span class="stat-suffix">%</span>
+            </div>
+            <p class="stat-desc">of hospitals have patient data split across four or more disconnected systems.</p>
+          </article>
+
+          <article class="stat-card reveal reveal-delay-1">
+            <span class="label-small">HIPAA Fine</span>
+            <div class="stat-number-wrap">
+              <span class="stat-number" data-target="1.2" data-decimal="true">0</span>
+              <span class="stat-suffix">M$ avg</span>
+            </div>
+            <p class="stat-desc">average HIPAA penalty per incident — typically traced to missing audit trails.</p>
+          </article>
+
+          <article class="stat-card reveal reveal-delay-2">
+            <span class="label-small">EHR Search</span>
+            <div class="stat-number-wrap">
+              <span class="stat-number" data-target="0" data-decimal="false">0</span>
+              <span class="stat-suffix">context</span>
+            </div>
+            <p class="stat-desc">EHR keyword search returns hits, not understanding. "Metformin" misses "glucose control medication".</p>
+          </article>
+
+          <article class="stat-card reveal reveal-delay-3">
+            <span class="label-small">AI Risk</span>
+            <div class="stat-number-wrap">
+              <span class="stat-number" data-target="100" data-decimal="false">0</span>
+              <span class="stat-suffix">% confident</span>
+            </div>
+            <p class="stat-desc">existing clinical AI tools answer from training data when records are silent — invented certainty is the worst failure mode.</p>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SOLUTION SECTION ─────────────────────────────────── -->
+    <section class="section" id="solution" aria-labelledby="solutionHeading">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="label-small">How it works</p>
+          <h2 id="solutionHeading">How it works</h2>
+          <p>Five agents. One audit trail. Every claim cited.</p>
+        </div>
+
+        <div class="pipeline-wrap reveal">
+          <div class="pipeline" id="pipeline" role="list" aria-label="Agent pipeline stages">
+
+            <div class="pipeline-stage" id="ps0" role="listitem" aria-label="Stage 1: Documents">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="9" width="16" height="11" rx="2"/>
+                <rect x="6" y="5" width="12" height="6" rx="1"/>
+                <line x1="7" y1="14" x2="17" y2="14"/>
+                <line x1="7" y1="17" x2="13" y2="17"/>
+              </svg>
+              <span class="pipeline-stage-label">Documents</span>
+            </div>
+
+            <div class="pipeline-connector" id="pc0" aria-hidden="true"></div>
+
+            <div class="pipeline-stage" id="ps1" role="listitem" aria-label="Stage 2: Ingestion">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v11"/>
+                <path d="M8 10l4 4 4-4"/>
+                <path d="M4 18h16"/>
+                <path d="M4 18v2h16v-2"/>
+              </svg>
+              <span class="pipeline-stage-label">Ingestion</span>
+            </div>
+
+            <div class="pipeline-connector" id="pc1" aria-hidden="true"></div>
+
+            <div class="pipeline-stage" id="ps2" role="listitem" aria-label="Stage 3: Vector Store">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                <circle cx="6" cy="6" r="1.5"/>
+                <circle cx="12" cy="6" r="1.5"/>
+                <circle cx="18" cy="6" r="1.5"/>
+                <circle cx="6" cy="12" r="1.5"/>
+                <circle cx="12" cy="12" r="1.5"/>
+                <circle cx="18" cy="12" r="1.5"/>
+                <circle cx="6" cy="18" r="1.5"/>
+                <circle cx="12" cy="18" r="1.5"/>
+                <circle cx="18" cy="18" r="1.5"/>
+              </svg>
+              <span class="pipeline-stage-label">Vector Store</span>
+            </div>
+
+            <div class="pipeline-connector" id="pc2" aria-hidden="true"></div>
+
+            <div class="pipeline-stage" id="ps3" role="listitem" aria-label="Stage 4: Synthesis">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M15 8l-4 4 4 4"/>
+              </svg>
+              <span class="pipeline-stage-label">Synthesis</span>
+            </div>
+
+            <div class="pipeline-connector" id="pc3" aria-hidden="true"></div>
+
+            <div class="pipeline-stage" id="ps4" role="listitem" aria-label="Stage 5: Audit">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                <circle cx="12" cy="16" r="1.5"/>
+              </svg>
+              <span class="pipeline-stage-label">Audit</span>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="code-boxes reveal">
+          <div class="code-box">
+            <div class="code-box-header">Ingest a patient record</div>
+            <pre aria-label="Example ingest request"><span class="code-key">POST</span> /ingest
+<span class="code-key">patient_id</span>=P123
+<span class="code-key">source_type</span>=pdf
+<span class="code-key">file</span>=discharge_summary.pdf</pre>
+          </div>
+          <div class="code-box">
+            <div class="code-box-header">Ask in natural language</div>
+            <pre aria-label="Example query request"><span class="code-key">POST</span> /query
+<span class="code-key">patient_id</span>=P123
+<span class="code-key">query_text</span>="Was patient on anticoagulants?"</pre>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── USP SECTION ──────────────────────────────────────── -->
+    <section class="section" id="usps" aria-labelledby="uspHeading">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="label-small">Differentiators</p>
+          <h2 id="uspHeading">Why this is different</h2>
+          <p>Six guarantees we built into the architecture, not the marketing.</p>
+        </div>
+
+        <div class="usp-grid">
+
+          <article class="usp-card reveal reveal-delay-1">
+            <div class="usp-icon" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L4 6v6c0 5 4.25 9.25 8 10 3.75-.75 8-5 8-10V6L12 2z"/>
+                <path d="M9 12l2 2 4-4"/>
+              </svg>
+            </div>
+            <h3>Grounded answers only</h3>
+            <p>If retrieved context doesn't support an answer, the system refuses. Not a feature toggle. A hard rule enforced in the synthesis prompt.</p>
+          </article>
+
+          <article class="usp-card reveal reveal-delay-2">
+            <div class="usp-icon" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                <circle cx="12" cy="16" r="1.5"/>
+              </svg>
+            </div>
+            <h3>Forensic-grade audit</h3>
+            <p>Every query and response written to an append-only Postgres table. A database trigger refuses UPDATE and DELETE — even from a superuser session.</p>
+          </article>
+
+          <article class="usp-card reveal reveal-delay-3">
+            <div class="usp-icon" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="8" height="8" rx="1.5"/>
+                <rect x="13" y="3" width="8" height="8" rx="1.5"/>
+                <rect x="3" y="13" width="8" height="8" rx="1.5"/>
+                <rect x="13" y="13" width="8" height="8" rx="1.5"/>
+              </svg>
+            </div>
+            <h3>Native multi-format</h3>
+            <p>PDF, FHIR R4, HL7 v2, CSV out of the box. No ETL pipeline. New parsers add without schema changes.</p>
+          </article>
+
+          <article class="usp-card reveal reveal-delay-1">
+            <div class="usp-icon" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <circle cx="12" cy="12" r="9"/>
+                <circle cx="12" cy="12" r="4"/>
+              </svg>
+            </div>
+            <h3>Patient-scoped retrieval</h3>
+            <p>Every search is scoped to one patient_id. Cross-patient leakage isn't a policy. It's architecturally impossible.</p>
+          </article>
+
+          <article class="usp-card reveal reveal-delay-2">
+            <div class="usp-icon" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>
+              </svg>
+            </div>
+            <h3>Sub-2s semantic search</h3>
+            <p>HNSW index on pgvector with voyage-3-large embeddings. Millions of chunks, single-digit-ms recall.</p>
+          </article>
+
+          <article class="usp-card reveal reveal-delay-3">
+            <div class="usp-icon" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2l8 4.5v11L12 22l-8-4.5v-11L12 2z"/>
+                <path d="M12 2v20"/>
+                <path d="M4 6.5l8 4.5 8-4.5"/>
+              </svg>
+            </div>
+            <h3>Deploy anywhere</h3>
+            <p>Docker Compose for on-prem (HIPAA requirement for many hospitals). Same codebase runs cloud-native. No vendor lock-in.</p>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── DATA SOURCES ─────────────────────────────────────── -->
+    <section class="section" id="data" aria-labelledby="dataHeading">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="label-small">Ingestion</p>
+          <h2 id="dataHeading">What you can feed it</h2>
+          <p>Native parsers — no transformation layer in between.</p>
+        </div>
+
+        <div class="data-group reveal">
+          <span class="label-small data-group-label">Available today</span>
+          <div class="pills-row">
+            <span class="pill active">PDF</span>
+            <span class="pill active">FHIR R4</span>
+            <span class="pill active">HL7 v2</span>
+            <span class="pill active">CSV</span>
+          </div>
+        </div>
+
+        <div class="data-group reveal reveal-delay-2">
+          <span class="label-small data-group-label">Adding next</span>
+          <div class="pills-row">
+            <span class="pill">DICOM metadata</span>
+            <span class="pill">CCD/C-CDA XML</span>
+            <span class="pill">Plain text</span>
+            <span class="pill">DOCX</span>
+            <span class="pill">XLSX labs</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── SECURITY SECTION ─────────────────────────────────── -->
+    <section class="section" id="security" aria-labelledby="securityHeading">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="label-small">Security</p>
+          <h2 id="securityHeading">Built for regulated environments</h2>
+          <p>HIPAA-aligned by architecture, not by audit checklist.</p>
+        </div>
+
+        <div class="security-grid">
+
+          <div class="security-body reveal">
+            <p>
+              Healthcare security cannot be bolted on after deployment. Every design decision in this system — from the append-only audit log enforced by a database trigger, to patient-scoped vector retrieval, to credentials flowing exclusively through environment variables — was made with a regulated environment as the baseline requirement.
+            </p>
+            <br />
+            <p>
+              This means no data leaves your perimeter if you deploy on-prem. No cross-patient retrieval path exists in the code. And no query is ever executed without first passing through the audit agent's access check — a hard architectural rule, not a middleware toggle someone can disable.
+            </p>
+          </div>
+
+          <ul class="security-list reveal reveal-delay-2" role="list">
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">JWT bearer auth, bcrypt password hashing</span>
+            </li>
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">Role-based access enforced before retrieval</span>
+            </li>
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">DB-trigger immutable audit log</span>
+            </li>
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">Patient-scoped queries (no cross-patient retrieval path)</span>
+            </li>
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">Encryption-at-rest on sensitive columns (pgcrypto)</span>
+            </li>
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">All credentials via env vars, never source</span>
+            </li>
+            <li class="security-item">
+              <svg class="check-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="9" r="8"/>
+                <path d="M6 9.5l2 2 4-4"/>
+              </svg>
+              <span class="security-item-text">Deploy on-prem in your VPC — no data leaves your perimeter</span>
+            </li>
+          </ul>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── ARCHITECTURE SECTION ─────────────────────────────── -->
+    <section class="section" id="architecture" aria-labelledby="archHeading">
+      <div class="container">
+        <div class="section-header reveal">
+          <p class="label-small">Architecture</p>
+          <h2 id="archHeading">Five agents, one orchestrator</h2>
+          <p>Clear separation of concerns. Each agent has one job and a typed exception.</p>
+        </div>
+
+        <!-- Desktop diagram -->
+        <div class="arch-diagram reveal" aria-label="Architecture diagram showing orchestrator connected to four agents" role="img">
+          <svg class="arch-svg" viewBox="0 0 1160 380" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <line x1="580" y1="170" x2="580" y2="80" stroke="#14f1fa" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+            <line x1="700" y1="190" x2="840" y2="190" stroke="#14f1fa" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+            <line x1="580" y1="215" x2="580" y2="295" stroke="#14f1fa" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+            <line x1="460" y1="190" x2="340" y2="190" stroke="#14f1fa" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+          </svg>
+
+          <div class="arch-node orchestrator" style="left: 50%; top: 50%; transform: translate(-50%, -50%);" aria-label="Orchestrator">
+            Orchestrator
+          </div>
+          <div class="arch-node" style="left: 50%; top: 10%; transform: translateX(-50%);" aria-label="Audit Agent">
+            Audit Agent
+          </div>
+          <div class="arch-node" style="right: 8%; top: 50%; transform: translateY(-50%);" aria-label="Query Agent">
+            Query Agent
+          </div>
+          <div class="arch-node" style="left: 50%; bottom: 10%; transform: translateX(-50%);" aria-label="Synthesis Agent">
+            Synthesis Agent
+          </div>
+          <div class="arch-node" style="left: 8%; top: 50%; transform: translateY(-50%);" aria-label="Ingestion Agent">
+            Ingestion Agent
+          </div>
+        </div>
+
+        <!-- Mobile arch stacked -->
+        <div class="arch-mobile" aria-label="Architecture overview" role="list">
+          <div class="arch-mobile-node" role="listitem">Audit Agent</div>
+          <svg class="arch-mobile-arrow" width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <line x1="8" y1="0" x2="8" y2="15"/>
+            <path d="M4 11l4 4 4-4"/>
+          </svg>
+          <div class="arch-mobile-node orchestrator" role="listitem">Orchestrator</div>
+          <svg class="arch-mobile-arrow" width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <line x1="8" y1="0" x2="8" y2="15"/>
+            <path d="M4 11l4 4 4-4"/>
+          </svg>
+          <div class="arch-mobile-node" role="listitem">Query Agent</div>
+          <svg class="arch-mobile-arrow" width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <line x1="8" y1="0" x2="8" y2="15"/>
+            <path d="M4 11l4 4 4-4"/>
+          </svg>
+          <div class="arch-mobile-node" role="listitem">Synthesis Agent</div>
+          <svg class="arch-mobile-arrow" width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <line x1="8" y1="0" x2="8" y2="15"/>
+            <path d="M4 11l4 4 4-4"/>
+          </svg>
+          <div class="arch-mobile-node" role="listitem">Ingestion Agent</div>
+        </div>
+
+        <!-- Agent labels -->
+        <div class="arch-labels reveal">
+          <div class="arch-label-card">
+            <h4>Audit Agent</h4>
+            <p>Runs before retrieval (access check) and after synthesis (append-only response log). Cannot be skipped.</p>
+          </div>
+          <div class="arch-label-card">
+            <h4>Query Agent</h4>
+            <p>Embeds the query via Voyage AI, runs pgvector similarity search filtered to one patient_id, returns top-5 chunks.</p>
+          </div>
+          <div class="arch-label-card">
+            <h4>Synthesis Agent</h4>
+            <p>Calls Claude with retrieved chunks as the only context. Refuses to answer if context doesn't support the claim.</p>
+          </div>
+          <div class="arch-label-card">
+            <h4>Ingestion Agent</h4>
+            <p>Triggered on upload. Parses document format, chunks at 512 tokens with 50-token overlap, embeds, upserts to pgvector.</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── DEMO CTA ──────────────────────────────────────────── -->
+    <section class="demo-cta-section" id="demo-cta" aria-labelledby="demoCTAHeading">
+      <div class="container">
+        <div class="card centered reveal">
+          <h2 id="demoCTAHeading">Try the live API</h2>
+          <p>Real grounded answers from real patient records. Refusal when records are silent. Audit log on every query.</p>
+          <a class="btn-primary" href="try.html">Open the live demo →</a>
+          <p class="muted small">Requires the API server running on localhost:8000.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── CTA SECTION ──────────────────────────────────────── -->
+    <section class="cta-section" id="cta" aria-labelledby="ctaHeading">
+      <div class="container">
+        <h2 id="ctaHeading">Deploy in your hospital</h2>
+        <p>Open source. MIT-licensed. Runs on your hardware.</p>
+        <div class="cta-buttons">
+          <a href="https://github.com/Ameyk244/Medical-Records-RAG-System" class="btn btn-primary btn-cta" target="_blank" rel="noopener noreferrer">
+            Star on GitHub &rarr;
+          </a>
+          <a href="#architecture" class="btn btn-outline btn-cta">
+            Read the architecture &rarr;
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── FOOTER ───────────────────────────────────────────── -->
+  <footer class="footer" aria-label="Site footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="24" height="24" rx="4" stroke="#14f1fa" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="4" fill="#14f1fa"/>
+          </svg>
+          Medical Records RAG &middot; MIT License
+        </div>
+        <div class="footer-right">
+          Built with FastAPI &middot; pgvector &middot; Voyage &middot; Claude
+        </div>
+      </div>
+      <p class="footer-note">
+        2026 &middot; This is a portfolio project. Not a HIPAA-certified product. Validate before clinical use.
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      function prefersReducedMotion() {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      }
+
+      /* ═══════════════════════════════════════════════
+         1. TYPEWRITER — hero terminal
+      ═══════════════════════════════════════════════ */
+      function initTypewriter() {
+        var queryEl = document.getElementById('heroQueryText');
+        var cursor = document.getElementById('heroCursor');
+        var answerEl = document.getElementById('heroAnswer');
+        if (!queryEl) return;
+
+        var citedQuery = 'what lab values were elevated?';
+        var citedLines = [
+          'Several values flagged as elevated:',
+          '→ glucose_fasting: 102 mg/dL <cite>[1]</cite>',
+          '→ blood_pressure_systolic: 128 mmHg <cite>[1]</cite><cite>[2]</cite>',
+          '→ blood_pressure_diastolic: 82 mmHg <cite>[1]</cite><cite>[2]</cite>',
+          '→ ldl_cholesterol: 118 mg/dL <cite>[1]</cite>'
+        ];
+
+        var refusalQuery = 'what was the patient\'s MRI finding?';
+        var refusalLines = [
+          '<refused>REFUSED: the provided context does not contain</refused>',
+          '<refused>information about an MRI scan.</refused>'
+        ];
+
+        var currentMode = 'cited';
+        var isAnimating = false;
+
+        function buildCiteLine(raw) {
+          return raw.replace(/<cite>(\[\d+\])<\/cite>/g, function (match, num) {
+            return '<span class="cite-pill">' + num + '</span>';
+          });
+        }
+
+        function buildRefusedLine(raw) {
+          return raw.replace(/<refused>(.*?)<\/refused>/g, function (match, text) {
+            return '<span style="color: var(--danger);">' + text + '</span>';
+          });
+        }
+
+        function typeQuery(query, cb) {
+          queryEl.textContent = '';
+          cursor.style.display = 'inline-block';
+          var i = 0;
+          var CHAR_DELAY = 35;
+          function next() {
+            if (i < query.length) {
+              queryEl.textContent += query[i];
+              i++;
+              setTimeout(next, CHAR_DELAY);
+            } else {
+              cursor.style.display = 'none';
+              if (cb) setTimeout(cb, 600);
+            }
+          }
+          setTimeout(next, 800);
+        }
+
+        function revealLines(lines, isCited) {
+          answerEl.innerHTML = '';
+          lines.forEach(function (line, idx) {
+            var div = document.createElement('div');
+            div.className = 'terminal-answer-line';
+            div.innerHTML = isCited ? buildCiteLine(line) : buildRefusedLine(line);
+            answerEl.appendChild(div);
+            setTimeout(function () { div.classList.add('visible'); }, idx * 120 + 50);
+          });
+          setTimeout(function () { isAnimating = false; }, lines.length * 120 + 200);
+        }
+
+        function runCited() {
+          isAnimating = true;
+          answerEl.innerHTML = '';
+          typeQuery(citedQuery, function () { revealLines(citedLines, true); });
+        }
+
+        function runRefusal() {
+          isAnimating = true;
+          answerEl.innerHTML = '';
+          typeQuery(refusalQuery, function () { revealLines(refusalLines, false); });
+        }
+
+        if (!prefersReducedMotion()) {
+          runCited();
+        } else {
+          queryEl.textContent = citedQuery;
+          cursor.style.display = 'none';
+          revealLines(citedLines, true);
+          setTimeout(function () {
+            answerEl.querySelectorAll('.terminal-answer-line').forEach(function (el) {
+              el.classList.add('visible');
+            });
+          }, 50);
+        }
+
+        window._heroToggleMode = function () {
+          if (isAnimating) return;
+          if (currentMode === 'cited') {
+            currentMode = 'refusal';
+            if (!prefersReducedMotion()) {
+              runRefusal();
+            } else {
+              queryEl.textContent = refusalQuery;
+              answerEl.innerHTML = '';
+              revealLines(refusalLines, false);
+              setTimeout(function () {
+                answerEl.querySelectorAll('.terminal-answer-line').forEach(function (el) { el.classList.add('visible'); });
+              }, 50);
+            }
+          } else {
+            currentMode = 'cited';
+            if (!prefersReducedMotion()) {
+              runCited();
+            } else {
+              queryEl.textContent = citedQuery;
+              answerEl.innerHTML = '';
+              revealLines(citedLines, true);
+              setTimeout(function () {
+                answerEl.querySelectorAll('.terminal-answer-line').forEach(function (el) { el.classList.add('visible'); });
+              }, 50);
+            }
+          }
+          return currentMode;
+        };
+      }
+
+      /* ═══════════════════════════════════════════════
+         2. REFUSAL TOGGLE BUTTON
+      ═══════════════════════════════════════════════ */
+      function initRefusalToggle() {
+        var btn = document.getElementById('refusalToggleBtn');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          var newMode = window._heroToggleMode();
+          btn.textContent = newMode === 'refusal' ? '▸ See cited example' : '▸ See refusal example';
+        });
+      }
+
+      /* ═══════════════════════════════════════════════
+         3. COUNTERS — animated stat numbers
+      ═══════════════════════════════════════════════ */
+      function initCounters() {
+        var counters = document.querySelectorAll('.stat-number[data-target]');
+        var started = new Set();
+
+        function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+        function animateCounter(el) {
+          var target = parseFloat(el.getAttribute('data-target'));
+          var isDecimal = el.getAttribute('data-decimal') === 'true';
+          var duration = 1200;
+          var startTime = null;
+          if (target === 0) { el.textContent = '0'; return; }
+
+          function tick(timestamp) {
+            if (!startTime) startTime = timestamp;
+            var elapsed = timestamp - startTime;
+            var progress = Math.min(elapsed / duration, 1);
+            var eased = easeOutCubic(progress);
+            var current = target * eased;
+            el.textContent = isDecimal ? current.toFixed(1) : Math.round(current);
+            if (progress < 1) {
+              requestAnimationFrame(tick);
+            } else {
+              el.textContent = isDecimal ? target.toFixed(1) : target;
+            }
+          }
+
+          if (!prefersReducedMotion()) {
+            requestAnimationFrame(tick);
+          } else {
+            el.textContent = isDecimal ? target.toFixed(1) : target;
+          }
+        }
+
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting && !started.has(entry.target)) {
+              started.add(entry.target);
+              animateCounter(entry.target);
+            }
+          });
+        }, { threshold: 0.4 });
+
+        counters.forEach(function (el) { observer.observe(el); });
+      }
+
+      /* ═══════════════════════════════════════════════
+         4. PIPELINE — solution section stage lighting
+      ═══════════════════════════════════════════════ */
+      function initPipeline() {
+        var pipeline = document.getElementById('pipeline');
+        if (!pipeline) return;
+
+        var stages = ['ps0','ps1','ps2','ps3','ps4'].map(function (id) {
+          return document.getElementById(id);
+        });
+        var connectors = ['pc0','pc1','pc2','pc3'].map(function (id) {
+          return document.getElementById(id);
+        });
+
+        var hasStarted = false;
+
+        function lightStage(idx) {
+          stages.forEach(function (s, i) {
+            s.classList.toggle('lit', i === idx);
+          });
+          connectors.forEach(function (c, i) {
+            c.classList.toggle('lit', i < idx);
+          });
+        }
+
+        function runLoop() {
+          var current = 0;
+          lightStage(0);
+          setInterval(function () {
+            current = (current + 1) % stages.length;
+            lightStage(current);
+          }, 600);
+        }
+
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting && !hasStarted) {
+              hasStarted = true;
+              if (!prefersReducedMotion()) {
+                runLoop();
+              } else {
+                stages.forEach(function (s) { s.classList.add('lit'); });
+                connectors.forEach(function (c) { c.classList.add('lit'); });
+              }
+            }
+          });
+        }, { threshold: 0.3 });
+
+        observer.observe(pipeline);
+      }
+
+      /* ═══════════════════════════════════════════════
+         5. REVEAL — generic scroll reveal
+      ═══════════════════════════════════════════════ */
+      function initReveal() {
+        if (prefersReducedMotion()) {
+          document.querySelectorAll('.reveal').forEach(function (el) {
+            el.classList.add('in-view');
+          });
+          return;
+        }
+        var elements = document.querySelectorAll('.reveal');
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('in-view');
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.1 });
+        elements.forEach(function (el) { observer.observe(el); });
+      }
+
+      /* ═══════════════════════════════════════════════
+         INIT
+      ═══════════════════════════════════════════════ */
+      document.addEventListener('DOMContentLoaded', function () {
+        initReveal();
+        initTypewriter();
+        initRefusalToggle();
+        initCounters();
+        initPipeline();
+      });
+
+    })();
+  </script>
+
+</body>
+</html>
