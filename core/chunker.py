@@ -1,4 +1,4 @@
-"""Token-aware chunker — section-aware, 512/50 overlap."""
+"""Token-aware chunker — clinically section-aware, 512/50 overlap."""
 
 from __future__ import annotations
 
@@ -7,11 +7,161 @@ from dataclasses import dataclass
 
 import voyageai
 
+from core.clinical_entities import (
+    ClinicalEntities,
+    extract_clinical_entities,
+    format_clinical_entities,
+)
 from core.embeddings import EMBEDDING_MODEL
 
 CHUNK_TOKEN_LIMIT = 512
 CHUNK_OVERLAP_TOKENS = 50
+CLINICAL_ENTITY_TOKEN_RESERVE = 80
 DEFAULT_SECTION = "General"
+DEFAULT_SEMANTIC_CATEGORY = "general"
+
+SECTION_CATEGORY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "demographics",
+        (
+            "demographic",
+            "identification",
+            "personal information",
+            "member information",
+            "subscriber",
+            "birth",
+            "dob",
+            "sex",
+            "gender",
+        ),
+    ),
+    (
+        "history",
+        (
+            "history",
+            "past medical",
+            "pmh",
+            "previous illness",
+            "social history",
+            "family history",
+            "risk factor",
+            "smoking",
+            "tobacco",
+            "alcohol",
+        ),
+    ),
+    (
+        "diagnosis",
+        (
+            "diagnosis",
+            "diagnoses",
+            "condition",
+            "conditions",
+            "problem list",
+            "assessment",
+            "impression",
+            "chief complaint",
+            "reason for admission",
+            "admission diagnosis",
+            "discharge diagnosis",
+        ),
+    ),
+    (
+        "medications",
+        (
+            "medication",
+            "medications",
+            "medicine",
+            "rx",
+            "prescription",
+            "drug",
+            "treatment",
+            "current meds",
+        ),
+    ),
+    (
+        "allergies",
+        (
+            "allergy",
+            "allergies",
+            "allergyintolerance",
+            "adverse reaction",
+        ),
+    ),
+    (
+        "labs",
+        (
+            "lab",
+            "labs",
+            "laboratory",
+            "observation",
+            "observations",
+            "diagnostic report",
+            "diagnostic reports",
+            "result",
+            "results",
+            "cbc",
+            "cmp",
+            "troponin",
+            "hemoglobin",
+            "glucose",
+            "creatinine",
+        ),
+    ),
+    (
+        "procedures",
+        (
+            "procedure",
+            "procedures",
+            "surgery",
+            "operation",
+            "operative",
+            "angiography",
+            "pci",
+            "catheterization",
+            "intervention",
+        ),
+    ),
+    (
+        "hospital_course",
+        (
+            "hospital course",
+            "course",
+            "admission course",
+            "encounter",
+            "encounters",
+            "visit",
+            "progress",
+            "clinical course",
+            "ed course",
+            "emergency department course",
+        ),
+    ),
+    (
+        "discharge",
+        (
+            "discharge",
+            "disposition",
+            "discharge condition",
+            "discharge instructions",
+            "discharge summary",
+        ),
+    ),
+    (
+        "followup",
+        (
+            "follow up",
+            "follow-up",
+            "followup",
+            "plan",
+            "care plan",
+            "recommendation",
+            "recommendations",
+            "appointment",
+            "return precautions",
+        ),
+    ),
+)
 
 # Phase 1 baseline — replace with pysbd/scispaCy in Phase 5.
 _ABBREVIATIONS: frozenset[str] = frozenset([
@@ -28,6 +178,8 @@ _ABBREV_PLACEHOLDER = "\x00PERIOD\x00"
 class Section:
     heading: str | None
     text: str
+    section_type: str | None = None
+    semantic_category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +188,10 @@ class Chunk:
     token_count: int
     section: str
     chunk_index: int
+    source_heading: str | None = None
+    section_type: str = DEFAULT_SEMANTIC_CATEGORY
+    semantic_category: str = DEFAULT_SEMANTIC_CATEGORY
+    clinical_entities: ClinicalEntities | None = None
 
 
 _tokenizer_client: voyageai.Client | None = None
@@ -75,8 +231,103 @@ def _split_sentences(text: str) -> list[str]:
     return [s for s in restored if s]
 
 
+def _normalise_heading(heading: str | None) -> str:
+    if heading and heading.strip():
+        return re.sub(r"\s+", " ", heading).strip()
+    return DEFAULT_SECTION
+
+
+def _classify_section(
+    heading: str | None,
+    text: str,
+    explicit_section_type: str | None = None,
+    explicit_semantic_category: str | None = None,
+) -> tuple[str, str]:
+    """Map source headings to stable clinical buckets for retrieval.
+
+    This lightweight classifier gives later retrieval stages a dependable
+    signal for demographics/history/allergies/etc. without introducing a new
+    NLP dependency into ingestion.
+    """
+    if explicit_semantic_category:
+        category = explicit_semantic_category.strip().lower()
+        section_type = explicit_section_type.strip().lower() if explicit_section_type else category
+        return section_type, category
+
+    if explicit_section_type:
+        section_type = explicit_section_type.strip().lower()
+        return section_type, section_type
+
+    normalized_heading = re.sub(r"[_\-]+", " ", (heading or "").lower())
+    normalized_heading = re.sub(r"\s+", " ", normalized_heading).strip()
+    if normalized_heading in {"patient", "patient information", "patient details"}:
+        return "demographics", "demographics"
+
+    haystack = f"{heading or ''}\n{text[:500]}".lower()
+    haystack = re.sub(r"[_\-]+", " ", haystack)
+    haystack = re.sub(r"\s+", " ", haystack)
+
+    for category, patterns in SECTION_CATEGORY_PATTERNS:
+        if any(pattern in haystack for pattern in patterns):
+            return category, category
+
+    return DEFAULT_SEMANTIC_CATEGORY, DEFAULT_SEMANTIC_CATEGORY
+
+
+def _metadata_prefix(
+    section_name: str,
+    semantic_category: str,
+    clinical_entities: ClinicalEntities | None = None,
+) -> str:
+    # Prefixing embeds the clinical section signal with the chunk body, which
+    # helps demographics/history chunks compete with medication-dense text.
+    prefix = (
+        f"Section: {section_name}\n"
+        f"Section category: {semantic_category}\n"
+    )
+    entity_text = format_clinical_entities(clinical_entities) if clinical_entities else ""
+    if entity_text:
+        return f"{prefix}{entity_text}\n\n"
+    return f"{prefix}\n"
+
+
+def _make_chunk(
+    body_text: str,
+    body_token_count: int,
+    section_name: str,
+    chunk_index: int,
+    source_heading: str | None,
+    section_type: str,
+    semantic_category: str,
+    _prefix_token_budget: int,
+) -> Chunk:
+    clinical_entities = extract_clinical_entities(
+        body_text,
+        section_category=semantic_category,
+    )
+    metadata_prefix = _metadata_prefix(section_name, semantic_category, clinical_entities)
+    actual_prefix_token_count = _count_tokens(metadata_prefix)
+    return Chunk(
+        text=f"{metadata_prefix}{body_text}",
+        token_count=body_token_count + actual_prefix_token_count,
+        section=section_name,
+        chunk_index=chunk_index,
+        source_heading=source_heading,
+        section_type=section_type,
+        semantic_category=semantic_category,
+        clinical_entities=clinical_entities,
+    )
+
+
 def _force_split_long_sentence(
-    sentence: str, section_name: str, start_index: int
+    sentence: str,
+    section_name: str,
+    start_index: int,
+    source_heading: str | None,
+    section_type: str,
+    semantic_category: str,
+    prefix_token_count: int,
+    body_token_limit: int,
 ) -> tuple[list[Chunk], int]:
     # Voyage SDK doesn't expose token→text decoding, so we operate at the word level.
     words = sentence.split()
@@ -91,36 +342,48 @@ def _force_split_long_sentence(
     for word in words:
         word_tokens = _count_tokens(word)
 
-        if word_tokens > CHUNK_TOKEN_LIMIT:
+        if word_tokens > body_token_limit:
             # Pathological edge case: a single word exceeds the token limit — emit as-is.
             if buffer:
                 chunk_text = " ".join(buffer)
-                chunks.append(Chunk(
-                    text=chunk_text,
-                    token_count=current_tokens,
-                    section=section_name,
-                    chunk_index=next_index,
+                chunks.append(_make_chunk(
+                    chunk_text,
+                    current_tokens,
+                    section_name,
+                    next_index,
+                    source_heading,
+                    section_type,
+                    semantic_category,
+                    prefix_token_count,
                 ))
                 next_index += 1
                 buffer = []
                 current_tokens = 0
-            chunks.append(Chunk(
-                text=word,
-                token_count=word_tokens,
-                section=section_name,
-                chunk_index=next_index,
+            chunks.append(_make_chunk(
+                word,
+                word_tokens,
+                section_name,
+                next_index,
+                source_heading,
+                section_type,
+                semantic_category,
+                prefix_token_count,
             ))
             next_index += 1
             continue
 
-        if current_tokens + word_tokens > CHUNK_TOKEN_LIMIT:
+        if current_tokens + word_tokens > body_token_limit:
             # Flush current buffer.
             chunk_text = " ".join(buffer)
-            chunks.append(Chunk(
-                text=chunk_text,
-                token_count=current_tokens,
-                section=section_name,
-                chunk_index=next_index,
+            chunks.append(_make_chunk(
+                chunk_text,
+                current_tokens,
+                section_name,
+                next_index,
+                source_heading,
+                section_type,
+                semantic_category,
+                prefix_token_count,
             ))
             next_index += 1
 
@@ -142,11 +405,15 @@ def _force_split_long_sentence(
             current_tokens += word_tokens
 
     if buffer:
-        chunks.append(Chunk(
-            text=" ".join(buffer),
-            token_count=current_tokens,
-            section=section_name,
-            chunk_index=next_index,
+        chunks.append(_make_chunk(
+            " ".join(buffer),
+            current_tokens,
+            section_name,
+            next_index,
+            source_heading,
+            section_type,
+            semantic_category,
+            prefix_token_count,
         ))
         next_index += 1
 
@@ -154,11 +421,23 @@ def _force_split_long_sentence(
 
 
 def _chunk_section(section: Section, start_index: int) -> tuple[list[Chunk], int]:
-    section_name = (
+    section_name = _normalise_heading(section.heading)
+    source_heading = (
         section.heading.strip()
         if section.heading and section.heading.strip()
-        else DEFAULT_SECTION
+        else None
     )
+    section_type, semantic_category = _classify_section(
+        section.heading,
+        section.text,
+        section.section_type,
+        section.semantic_category,
+    )
+    prefix_token_count = (
+        _count_tokens(_metadata_prefix(section_name, semantic_category))
+        + CLINICAL_ENTITY_TOKEN_RESERVE
+    )
+    body_token_limit = max(1, CHUNK_TOKEN_LIMIT - prefix_token_count)
 
     sentences = _split_sentences(section.text)
     if not sentences:
@@ -174,30 +453,47 @@ def _chunk_section(section: Section, start_index: int) -> tuple[list[Chunk], int
     current_tokens = 0
 
     for sentence, stokens in zip(sentences, sentence_tokens):
-        if stokens > CHUNK_TOKEN_LIMIT:
+        if stokens > body_token_limit:
             # Flush whatever is in the buffer before handling the oversized sentence.
             if buffer:
-                chunks.append(Chunk(
-                    text=" ".join(buffer),
-                    token_count=current_tokens,
-                    section=section_name,
-                    chunk_index=next_index,
+                chunks.append(_make_chunk(
+                    " ".join(buffer),
+                    current_tokens,
+                    section_name,
+                    next_index,
+                    source_heading,
+                    section_type,
+                    semantic_category,
+                    prefix_token_count,
                 ))
                 next_index += 1
                 buffer = []
                 buffer_token_counts = []
                 current_tokens = 0
 
-            long_chunks, next_index = _force_split_long_sentence(sentence, section_name, next_index)
+            long_chunks, next_index = _force_split_long_sentence(
+                sentence,
+                section_name,
+                next_index,
+                source_heading,
+                section_type,
+                semantic_category,
+                prefix_token_count,
+                body_token_limit,
+            )
             chunks.extend(long_chunks)
 
-        elif current_tokens + stokens > CHUNK_TOKEN_LIMIT:
+        elif current_tokens + stokens > body_token_limit:
             # Emit the current buffer as a chunk.
-            chunks.append(Chunk(
-                text=" ".join(buffer),
-                token_count=current_tokens,
-                section=section_name,
-                chunk_index=next_index,
+            chunks.append(_make_chunk(
+                " ".join(buffer),
+                current_tokens,
+                section_name,
+                next_index,
+                source_heading,
+                section_type,
+                semantic_category,
+                prefix_token_count,
             ))
             next_index += 1
 
@@ -225,11 +521,15 @@ def _chunk_section(section: Section, start_index: int) -> tuple[list[Chunk], int
 
     # Flush remaining sentences.
     if buffer:
-        chunks.append(Chunk(
-            text=" ".join(buffer),
-            token_count=current_tokens,
-            section=section_name,
-            chunk_index=next_index,
+        chunks.append(_make_chunk(
+            " ".join(buffer),
+            current_tokens,
+            section_name,
+            next_index,
+            source_heading,
+            section_type,
+            semantic_category,
+            prefix_token_count,
         ))
         next_index += 1
 

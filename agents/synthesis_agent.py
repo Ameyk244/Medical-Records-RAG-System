@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -10,6 +11,11 @@ from datetime import date
 from google import genai
 from google.genai import errors, types
 
+from agents.patient_state_builder import build_patient_state
+from core.contradiction_detector import detect_contradictions
+from core.encounter_reconciler import reconcile_encounters
+from core.evidence_prioritizer import prioritize_evidence
+from core.timeline_builder import build_timeline
 from core.vector_store import ChunkResult
 
 SYNTHESIS_MODEL = "gemini-2.5-flash"   # source of truth for the model id used here
@@ -18,10 +24,13 @@ MAX_OUTPUT_TOKENS = 1024
 _SYSTEM_PROMPT = """\
 You are a clinical records assistant for licensed clinicians.
 
-You will be given numbered context from a patient's medical records and a question. Answer ONLY using the provided context.
+You will be given structured patient state, a chronological timeline, evidence assessment, longitudinal reconciliation, numbered context from a patient's medical records, and a question. These structured layers are derived only from the numbered context and are navigation aids, not independent evidence. Answer ONLY using the numbered context.
 
 Strict rules:
 - Cite every factual claim inline using [N], where N is the context number. Multiple citations: [1][3].
+- Use the structured patient state, timeline, evidence prioritization, longitudinal reconciliation, and contradiction flags to organize clinical reasoning, but cite the numbered evidence chunks for every fact.
+- If contradictions are flagged and the numbered context does not resolve them, state the uncertainty rather than choosing one side.
+- Prefer higher-priority and more recent evidence only when it is supported by numbered chunks.
 - If the context does not contain enough information to answer, respond with EXACTLY this format and nothing else: REFUSED: <one short sentence explaining what is missing>
 - Never use knowledge from your training. If a fact is not in the context, you do not know it.
 - Do not speculate. Do not infer beyond what the context literally states.
@@ -84,7 +93,42 @@ async def synthesise(
         header = " | ".join(header_parts)
         context_blocks.append(f"{header}\n{c.text}")
     context = "\n\n".join(context_blocks)
-    user_message = f"Context:\n{context}\n\nQuestion: {query_text}"
+    patient_state = build_patient_state(chunks)
+    timeline = build_timeline(chunks)
+    evidence_priorities = prioritize_evidence(chunks)
+    contradictions = detect_contradictions(chunks)
+    longitudinal_reconciliation = reconcile_encounters(chunks)
+    patient_state_json = json.dumps(patient_state, indent=2, sort_keys=True)
+    timeline_json = json.dumps(timeline, indent=2, sort_keys=True)
+    longitudinal_reconciliation_json = json.dumps(
+        longitudinal_reconciliation,
+        indent=2,
+        sort_keys=True,
+    )
+    evidence_assessment_json = json.dumps(
+        {
+            "prioritized_evidence": evidence_priorities,
+            "detected_contradictions": contradictions,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    clinical_summary = patient_state.get("clinical_summary") or ""
+    user_message = (
+        "Structured Patient State (derived only from retrieved evidence):\n"
+        f"{patient_state_json}\n\n"
+        "Clinical Summary (deterministic, derived from the same evidence):\n"
+        f"{clinical_summary}\n\n"
+        "Chronological Timeline (derived only from retrieved evidence):\n"
+        f"{timeline_json}\n\n"
+        "Evidence Assessment (derived only from retrieved evidence; numbered chunks remain source of truth):\n"
+        f"{evidence_assessment_json}\n\n"
+        "Longitudinal Reconciliation (derived only from retrieved evidence):\n"
+        f"{longitudinal_reconciliation_json}\n\n"
+        "Retrieved Evidence Chunks:\n"
+        f"{context}\n\n"
+        f"Question: {query_text}"
+    )
 
     try:
         response = await _get_client().aio.models.generate_content(
