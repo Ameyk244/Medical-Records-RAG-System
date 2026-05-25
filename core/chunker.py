@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-
-import voyageai
+from typing import Any
 
 from core.clinical_entities import (
     ClinicalEntities,
     extract_clinical_entities,
     format_clinical_entities,
 )
-from core.embeddings import EMBEDDING_MODEL
+from core.embedding_config import EMBEDDING_MODEL
 
 CHUNK_TOKEN_LIMIT = 512
 CHUNK_OVERLAP_TOKENS = 50
@@ -194,18 +193,41 @@ class Chunk:
     clinical_entities: ClinicalEntities | None = None
 
 
-_tokenizer_client: voyageai.Client | None = None
+_tokenizer_client: Any | None = None
+_tokenizer_unavailable = False
 
 
-def _get_tokenizer_client() -> voyageai.Client:
-    global _tokenizer_client
-    if _tokenizer_client is None:
-        _tokenizer_client = voyageai.Client()
-    return _tokenizer_client
+def _count_tokens_with_voyage(text: str) -> int | None:
+    global _tokenizer_client, _tokenizer_unavailable
+    if _tokenizer_unavailable:
+        return None
+
+    try:
+        import voyageai  # type: ignore[import-untyped]
+    except ImportError:
+        _tokenizer_unavailable = True
+        return None
+
+    try:
+        if _tokenizer_client is None:
+            _tokenizer_client = voyageai.Client()
+        return _tokenizer_client.count_tokens([text], model=EMBEDDING_MODEL)
+    except Exception:
+        _tokenizer_unavailable = True
+        return None
+
+
+def _fallback_count_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return len(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
 
 
 def _count_tokens(text: str) -> int:
-    return _get_tokenizer_client().count_tokens([text], model=EMBEDDING_MODEL)
+    voyage_token_count = _count_tokens_with_voyage(text)
+    if voyage_token_count is not None:
+        return voyage_token_count
+    return _fallback_count_tokens(text)
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -237,6 +259,24 @@ def _normalise_heading(heading: str | None) -> str:
     return DEFAULT_SECTION
 
 
+def _normalise_classifier_text(text: str) -> str:
+    normalized = re.sub(r"[_\-]+", " ", text.lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _category_from_text(text: str) -> tuple[str, str] | None:
+    normalized = _normalise_classifier_text(text)
+    if not normalized:
+        return None
+    if normalized in {"patient", "patient information", "patient details"}:
+        return "demographics", "demographics"
+
+    for category, patterns in SECTION_CATEGORY_PATTERNS:
+        if any(pattern in normalized for pattern in patterns):
+            return category, category
+    return None
+
+
 def _classify_section(
     heading: str | None,
     text: str,
@@ -258,18 +298,16 @@ def _classify_section(
         section_type = explicit_section_type.strip().lower()
         return section_type, section_type
 
-    normalized_heading = re.sub(r"[_\-]+", " ", (heading or "").lower())
-    normalized_heading = re.sub(r"\s+", " ", normalized_heading).strip()
-    if normalized_heading in {"patient", "patient information", "patient details"}:
-        return "demographics", "demographics"
+    heading_category = _category_from_text(heading or "")
+    if heading_category:
+        return heading_category
 
-    haystack = f"{heading or ''}\n{text[:500]}".lower()
-    haystack = re.sub(r"[_\-]+", " ", haystack)
-    haystack = re.sub(r"\s+", " ", haystack)
+    if heading and heading.strip():
+        return DEFAULT_SEMANTIC_CATEGORY, DEFAULT_SEMANTIC_CATEGORY
 
-    for category, patterns in SECTION_CATEGORY_PATTERNS:
-        if any(pattern in haystack for pattern in patterns):
-            return category, category
+    body_category = _category_from_text(text[:500])
+    if body_category:
+        return body_category
 
     return DEFAULT_SEMANTIC_CATEGORY, DEFAULT_SEMANTIC_CATEGORY
 

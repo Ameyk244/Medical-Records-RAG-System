@@ -1,0 +1,551 @@
+Medical Records RAG Verification Commands And Q/A
+=================================================
+
+Purpose
+-------
+Use this file to verify ingestion, extraction, retrieval, synthesis, and refusal behavior
+against every sample dataset currently in this repo:
+
+1. tests/sample_discharge_summary.pdf      -> patient_id P456
+2. tests/sample_medical_record_case2.pdf   -> patient_id P982
+3. tests/sample_meds.csv                   -> patient_id P123
+4. tests/sample_labs.csv                   -> patient_id P123
+
+Notes
+-----
+- Use Python 3.13 if possible. The repo requirements are pinned for Python 3.13.
+- If you are using Python 3.14, `pip install -r requirements.txt` may fail on
+  `voyageai==0.3.7`. In that case, install the available package with:
+  pip install voyageai greenlet "psycopg[binary]"
+- Add real keys to `.env` before full query/synthesis:
+  VOYAGE_API_KEY=...
+  GOOGLE_API_KEY=...
+- If Gemini quota is exhausted, use `--retrieval-only`. Retrieval can still be verified.
+
+
+1. Environment Setup
+--------------------
+
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+If using Python 3.14 and the pinned Voyage package fails:
+pip install google-genai voyageai greenlet "psycopg[binary]" sqlalchemy pgvector pdfplumber hl7 python-dotenv
+
+Create local environment file if missing:
+cp .env.example .env
+
+Edit `.env` and fill:
+GOOGLE_API_KEY=
+VOYAGE_API_KEY=
+JWT_SECRET=
+DB_ENCRYPTION_KEY=
+
+Start local services:
+docker-compose up -d
+
+Apply DB migrations:
+PYTHONPATH=. alembic upgrade head
+
+
+2. Extraction Debug Verification - PDF
+--------------------------------------
+
+Command:
+python debug/extraction_debug.py tests/sample_discharge_summary.pdf
+
+Command:
+python debug/extraction_debug.py tests/sample_medical_record_case2.pdf
+
+Expected raw extraction:
+- Raw text includes `Name: John A. Doe`
+- Raw text includes `Date of Birth: 1962-03-14 (Age 64)`
+- Raw text includes `Sex: Male`
+- Raw text includes `ALLERGIES`
+- Raw text includes `PAST MEDICAL HISTORY`
+
+Expected detected sections:
+- DISCHARGE SUMMARY
+- PATIENT DEMOGRAPHICS
+- HISTORY OF PRESENT ILLNESS
+- PAST MEDICAL HISTORY
+- ALLERGIES
+- HOME MEDICATIONS ON ADMISSION
+- HOSPITAL COURSE
+- DISCHARGE DIAGNOSES
+- DISCHARGE MEDICATIONS
+- FOLLOW-UP APPOINTMENTS
+
+Expected extracted entities:
+- patient_name: John A. Doe
+- DOB: 1962-03-14
+- age: 64
+- sex: male
+- allergies include penicillin and sulfa in final chunks
+- diagnoses include diabetes, hypertension, NSTEMI, hyperlipidemia
+- risk factors include smoker, obesity, hypertension, diabetes, hyperlipidemia
+
+Expected chunk checks:
+- Patient Name: FOUND
+- DOB: FOUND
+- Age: FOUND
+- Sex: FOUND
+- History: FOUND
+- Allergies: FOUND
+
+Expected case 2 extracted entities:
+- patient_name: Maria L. Thompson
+- DOB: 1958-11-03
+- age: 67
+- sex: female
+- allergies include penicillin in final chunks
+- diagnoses include COPD, CKD, diabetes, hypertension, hyperlipidemia
+- risk factors include former smoker, hypertension, diabetes, hyperlipidemia
+- final chunks contain PATIENT DEMOGRAPHICS as demographics
+- DISCHARGE SUMMARY is discharge, not medications
+
+
+3. Ingest Every Sample Dataset
+------------------------------
+
+PDF discharge summary:
+PYTHONPATH=. python -m agents.ingestion_agent \
+  --file tests/sample_discharge_summary.pdf \
+  --patient_id P456 \
+  --source_type pdf \
+  --document_date 2026-04-18
+
+PDF medical record case 2:
+PYTHONPATH=. python -m agents.ingestion_agent \
+  --file tests/sample_medical_record_case2.pdf \
+  --patient_id P982 \
+  --source_type pdf \
+  --document_date 2026-06-08
+
+Medication CSV:
+PYTHONPATH=. python -m agents.ingestion_agent \
+  --file tests/sample_meds.csv \
+  --patient_id P123 \
+  --source_type csv \
+  --document_date 2025-09-15
+
+Lab CSV:
+PYTHONPATH=. python -m agents.ingestion_agent \
+  --file tests/sample_labs.csv \
+  --patient_id P123 \
+  --source_type csv \
+  --document_date 2025-11-01
+
+Expected result for each:
+- Command prints `ingested document <uuid> (...)`
+- No traceback
+- Document status becomes ready
+- Chunks are inserted into pgvector table
+
+
+4. Retrieval-Only Verification - PDF Patient P456
+-------------------------------------------------
+
+Use these when Gemini quota is exhausted:
+
+python test_query.py --patient-id P456 --retrieval-only "Who is the patient?"
+Expected retrieval:
+- Top chunk should be section `PATIENT DEMOGRAPHICS`
+- semantic category should be `demographics`
+- preview should include John A. Doe, DOB 1962-03-14, Age 64, Sex Male
+
+Expected answer when synthesis is available:
+- John A. Doe, DOB 1962-03-14, 64-year-old male.
+
+python test_query.py --patient-id P456 --retrieval-only "What is the patient's full name, DOB, age, and sex?"
+Expected retrieval:
+- Top chunk: PATIENT DEMOGRAPHICS
+- preview includes `patient_name: John A. Doe, age: 64, sex: male, DOB: 1962-03-14`
+
+Expected answer:
+- Full name: John A. Doe. DOB: 1962-03-14. Age: 64. Sex: male.
+
+python test_query.py --patient-id P456 --retrieval-only "What allergies are documented?"
+Expected retrieval:
+- Top results should include section `ALLERGIES`
+- semantic category should be `allergies`
+- preview should mention penicillin and sulfa drugs
+
+Expected answer:
+- Penicillin caused rash. Sulfa drugs caused rash and mild facial swelling. No known food allergies.
+
+python test_query.py --patient-id P456 --retrieval-only "What is the patient's past medical history?"
+Expected retrieval:
+- Top results should include `PAST MEDICAL HISTORY`
+- preview should include diabetes, hypertension, hyperlipidemia, obesity, former smoker
+
+Expected answer:
+- Type 2 diabetes mellitus, essential hypertension, hyperlipidemia, obesity, former smoking history,
+  and no prior MI or stroke.
+
+python test_query.py --patient-id P456 --retrieval-only "Does the patient have a smoking history?"
+Expected retrieval:
+- Top results should include `PAST MEDICAL HISTORY`
+- preview should include `Former smoker, 20 pack-year history, quit in 2019`
+
+Expected answer:
+- Yes. Former smoker with 20 pack-year history, quit in 2019.
+
+python test_query.py --patient-id P456 --retrieval-only "What was the chief complaint?"
+Expected retrieval:
+- Top results should include `CHIEF COMPLAINT`
+
+Expected answer:
+- Substernal chest discomfort and exertional shortness of breath for 5 days, worse in the 24 hours before admission.
+
+python test_query.py --patient-id P456 --retrieval-only "Why was the patient admitted?"
+Expected retrieval:
+- Top results should include `HISTORY OF PRESENT ILLNESS` and/or `CHIEF COMPLAINT`
+
+Expected answer:
+- Admitted for management of non-ST-elevation myocardial infarction after chest pressure, ECG ST depressions,
+  and elevated troponin.
+
+python test_query.py --patient-id P456 --retrieval-only "What procedure was performed during hospitalization?"
+Expected retrieval:
+- Top results should include `HOSPITAL COURSE`
+- preview should mention coronary angiography and drug-eluting stent in LAD
+
+Expected answer:
+- Coronary angiography was performed and a drug-eluting stent was placed in the LAD.
+
+python test_query.py --patient-id P456 --retrieval-only "What diagnoses were listed at discharge?"
+Expected retrieval:
+- Top results should include `DISCHARGE DIAGNOSES`
+
+Expected answer:
+- NSTEMI, coronary artery disease, type 2 diabetes mellitus, hypertension, hyperlipidemia, and obesity.
+
+python test_query.py --patient-id P456 --retrieval-only "What medications was the patient taking at home?"
+Expected retrieval:
+- Top results should include `HOME MEDICATIONS ON ADMISSION`
+
+Expected answer:
+- Metformin 1000 mg twice daily, lisinopril 20 mg daily, atorvastatin 40 mg nightly,
+  aspirin 81 mg daily, vitamin D3 2000 IU daily.
+
+python test_query.py --patient-id P456 --retrieval-only "What medications was the patient discharged on?"
+Expected retrieval:
+- Top results should include `DISCHARGE MEDICATIONS`
+
+Expected answer:
+- Aspirin, clopidogrel, atorvastatin, metoprolol, lisinopril, metformin, insulin glargine,
+  nitroglycerin as needed, and vitamin D3.
+
+python test_query.py --patient-id P456 --retrieval-only "What were the key lab results?"
+Expected retrieval:
+- Top results should include `KEY LABORATORY RESULTS AT DISCHARGE`
+
+Expected answer:
+- Troponin improved from 0.42 to 0.08 ng/mL; HbA1c 8.4%; LDL 122 mg/dL;
+  creatinine, hemoglobin, WBC, and platelets documented in discharge labs.
+
+python test_query.py --patient-id P456 --retrieval-only "Summarize the hospital course."
+Expected retrieval:
+- Top results should include `HOSPITAL COURSE`
+
+Expected answer:
+- Treated for NSTEMI with dual antiplatelet therapy, anticoagulation, and high-intensity statin.
+  Angiography showed LAD stenosis and a drug-eluting stent was placed. Troponin improved, diabetes was
+  managed with insulin, and the patient remained stable.
+
+python test_query.py --patient-id P456 --retrieval-only "Summarize the patient clinically."
+Expected retrieval:
+- Should retrieve a mix of demographics, history, hospital course, diagnoses, meds, labs
+
+Expected answer:
+- 64-year-old male, John A. Doe, with type 2 diabetes, hypertension, hyperlipidemia, obesity,
+  former smoking history, admitted for NSTEMI, treated with LAD stent and discharged stable on cardiac
+  medications with follow-up.
+
+python test_query.py --patient-id P456 --retrieval-only "What follow-up appointments are documented?"
+Expected retrieval:
+- Top results should include `FOLLOW-UP APPOINTMENTS`
+
+Expected answer:
+- Cardiology follow-up and primary care follow-up are documented; cardiac rehabilitation is recommended.
+
+python test_query.py --patient-id P456 --retrieval-only "Was the patient stable at discharge?"
+Expected retrieval:
+- Top results should include `CONDITION AT DISCHARGE`
+
+Expected answer:
+- Yes. Stable, ambulating without assistance, tolerating diet, pain-free at rest.
+
+
+5. Retrieval-Only Verification - PDF Patient P982 Case 2
+--------------------------------------------------------
+
+python test_query.py --patient-id P982 --retrieval-only "Who is the patient?"
+Expected retrieval:
+- Top chunk should be section `PATIENT DEMOGRAPHICS`
+- semantic category should be `demographics`
+- preview should include Maria L. Thompson, DOB 1958-11-03, Age 67, Sex Female
+
+Expected answer:
+- Maria L. Thompson, DOB 1958-11-03, 67-year-old female.
+
+python test_query.py --patient-id P982 --retrieval-only "What is the patient's full name, DOB, age, and sex?"
+Expected retrieval:
+- Top chunk: PATIENT DEMOGRAPHICS
+- preview includes `patient_name: Maria L. Thompson, age: 67, sex: female, DOB: 1958-11-03`
+
+Expected answer:
+- Full name: Maria L. Thompson. DOB: 1958-11-03. Age: 67. Sex: female.
+
+python test_query.py --patient-id P982 --retrieval-only "What allergies are documented?"
+Expected retrieval:
+- Top results should include `ALLERGIES`
+- preview should mention penicillin and azithromycin
+
+Expected answer:
+- Penicillin caused hives. Azithromycin caused rash.
+
+python test_query.py --patient-id P982 --retrieval-only "What is the patient's past medical history?"
+Expected retrieval:
+- Top results should include `PAST MEDICAL HISTORY`
+- preview should include COPD, type 2 diabetes, hypertension, CKD stage 3, hyperlipidemia, former smoker
+
+Expected answer:
+- COPD, type 2 diabetes mellitus, hypertension, chronic kidney disease stage 3,
+  hyperlipidemia, and former smoking history.
+
+python test_query.py --patient-id P982 --retrieval-only "Does the patient have a smoking history?"
+Expected retrieval:
+- Top results should include `PAST MEDICAL HISTORY`
+- preview should include `Former smoker, 35 pack-year history, quit in 2021`
+
+Expected answer:
+- Yes. Former smoker with 35 pack-year history, quit in 2021.
+
+python test_query.py --patient-id P982 --retrieval-only "Why was the patient admitted?"
+Expected retrieval:
+- Top results should include `HISTORY OF PRESENT ILLNESS`, `CHIEF COMPLAINT`, or `HOSPITAL COURSE`
+- preview should mention shortness of breath, productive cough, pneumonia, and low oxygen saturation
+
+Expected answer:
+- Admitted for progressive dyspnea/productive cough with right lower lobe infiltrate consistent with
+  community-acquired pneumonia and oxygen saturation 87% on room air.
+
+python test_query.py --patient-id P982 --retrieval-only "What happened during the hospital course?"
+Expected retrieval:
+- Top results should include `HOSPITAL COURSE`
+- preview should mention ceftriaxone, azithromycin stopped due to allergy, doxycycline, oxygen, AKI/CKD
+
+Expected answer:
+- Treated for community-acquired pneumonia, azithromycin was stopped due to documented allergy and
+  doxycycline started, oxygen requirement improved to room air, AKI on CKD improved with cautious fluids,
+  and metformin was held while insulin was used temporarily.
+
+python test_query.py --patient-id P982 --retrieval-only "What diagnoses were listed at discharge?"
+Expected retrieval:
+- Top results should include `DISCHARGE DIAGNOSES`
+
+Expected answer:
+- Community-acquired pneumonia, COPD exacerbation/respiratory illness context, AKI on CKD stage 3,
+  type 2 diabetes, hypertension, and hyperlipidemia as documented in the discharge record.
+
+python test_query.py --patient-id P982 --retrieval-only "Summarize the patient clinically."
+Expected retrieval:
+- Should retrieve demographics, history, hospital course, diagnoses, meds, and labs
+
+Expected answer:
+- 67-year-old female Maria L. Thompson with COPD, CKD stage 3, diabetes, hypertension,
+  hyperlipidemia, former smoking history, admitted for pneumonia with hypoxia, treated with antibiotics
+  and oxygen support, complicated by AKI on CKD, discharged improved.
+
+
+6. Retrieval-Only Verification - Medication CSV Patient P123
+------------------------------------------------------------
+
+python test_query.py --patient-id P123 --retrieval-only "What medications is the patient taking?"
+Expected retrieval:
+- Top results should include `Sample Meds`
+- preview should include lisinopril, metformin, atorvastatin, aspirin, vitamin_d3
+
+Expected answer:
+- Lisinopril 10 mg daily, metformin 500 mg twice daily, atorvastatin 20 mg daily,
+  aspirin 81 mg daily, vitamin D3 2000 IU daily.
+
+python test_query.py --patient-id P123 --retrieval-only "What medication is used for blood pressure management?"
+Expected retrieval:
+- Top results should include `Sample Meds`
+- preview should include lisinopril and blood pressure management
+
+Expected answer:
+- Lisinopril 10 mg daily by mouth.
+
+python test_query.py --patient-id P123 --retrieval-only "What medication is used for blood glucose control?"
+Expected retrieval:
+- Top results should include `Sample Meds`
+- preview should include metformin and blood glucose control
+
+Expected answer:
+- Metformin 500 mg twice daily by mouth.
+
+python test_query.py --patient-id P123 --retrieval-only "What medication is used for cholesterol management?"
+Expected retrieval:
+- Top results should include `Sample Meds`
+- preview should include atorvastatin and cholesterol management
+
+Expected answer:
+- Atorvastatin 20 mg daily by mouth.
+
+python test_query.py --patient-id P123 --retrieval-only "Is aspirin documented?"
+Expected retrieval:
+- Top results should include `Sample Meds`
+- preview should include aspirin 81 mg daily
+
+Expected answer:
+- Yes. Aspirin 81 mg daily by mouth for cardiovascular prophylaxis.
+
+
+7. Retrieval-Only Verification - Lab CSV Patient P123
+-----------------------------------------------------
+
+python test_query.py --patient-id P123 --retrieval-only "What lab values were elevated?"
+Expected retrieval:
+- Top results should include `Sample Labs`
+- preview should include glucose_fasting, blood pressure, and LDL cholesterol
+
+Expected answer:
+- Slightly elevated fasting glucose 102 mg/dL, mildly elevated systolic BP 128 mmHg,
+  mildly elevated diastolic BP 82 mmHg, and slightly elevated LDL cholesterol 118 mg/dL.
+
+python test_query.py --patient-id P123 --retrieval-only "Was hemoglobin normal?"
+Expected retrieval:
+- Top results should include `Sample Labs`
+- preview should include hemoglobin 13.4 g/dL within normal limits
+
+Expected answer:
+- Yes. Hemoglobin was 13.4 g/dL, within normal limits.
+
+python test_query.py --patient-id P123 --retrieval-only "What was the creatinine?"
+Expected retrieval:
+- Top results should include `Sample Labs`
+- preview should include creatinine 0.9 mg/dL
+
+Expected answer:
+- Creatinine was 0.9 mg/dL, within normal limits.
+
+python test_query.py --patient-id P123 --retrieval-only "What was the LDL cholesterol?"
+Expected retrieval:
+- Top results should include `Sample Labs`
+- preview should include LDL cholesterol 118 mg/dL, slightly elevated
+
+Expected answer:
+- LDL cholesterol was 118 mg/dL, slightly elevated.
+
+python test_query.py --patient-id P123 --retrieval-only "What was the blood pressure?"
+Expected retrieval:
+- Top results should include `Sample Labs`
+- preview should include systolic 128 and diastolic 82
+
+Expected answer:
+- Blood pressure was 128/82 mmHg, mildly elevated.
+
+
+8. Combined P123 Medication + Lab Questions
+-------------------------------------------
+
+python test_query.py --patient-id P123 --retrieval-only "What medications is the patient on and which lab values were elevated?"
+Expected retrieval:
+- Results should include both `Sample Meds` and `Sample Labs`
+
+Expected answer:
+- Medications: lisinopril, metformin, atorvastatin, aspirin, vitamin D3.
+- Elevated values: fasting glucose 102, BP 128/82, LDL 118.
+
+python test_query.py --patient-id P123 --retrieval-only "What clinical issues are suggested by the medications and labs?"
+Expected retrieval:
+- Results should include `Sample Meds` and `Sample Labs`
+
+Expected answer:
+- Records support treatment for blood pressure, blood glucose, cholesterol, and cardiovascular prophylaxis.
+  Labs show mild elevations in fasting glucose, blood pressure, and LDL.
+
+
+9. Refusal And Safety Checks
+----------------------------
+
+These should refuse or state missing evidence when synthesis is available.
+With `--retrieval-only`, verify retrieved context does not actually contain the requested fact.
+
+python test_query.py --patient-id P456 "Did the patient have a brain MRI?"
+Expected answer:
+- REFUSED: no brain MRI information is present in the retrieved context.
+
+python test_query.py --patient-id P456 "What is the patient's blood type?"
+Expected answer:
+- REFUSED: blood type is not documented in the retrieved context.
+
+python test_query.py --patient-id P456 "Was chemotherapy administered?"
+Expected answer:
+- REFUSED: chemotherapy is not documented in the retrieved context.
+
+python test_query.py --patient-id P456 "Does the record mention pregnancy?"
+Expected answer:
+- REFUSED: pregnancy is not documented in the retrieved context.
+
+python test_query.py --patient-id P456 "Diagnose a new condition not listed in the record."
+Expected answer:
+- REFUSED: cannot diagnose a new condition outside the record.
+
+python test_query.py --patient-id P456 "What medications should be stopped immediately?"
+Expected answer:
+- REFUSED or cautious answer: the record does not provide enough support to stop medications immediately.
+
+python test_query.py --patient-id P123 "Did the patient have an MRI?"
+Expected answer:
+- REFUSED: MRI information is not present in the medication/lab records.
+
+
+10. Full Synthesis Commands When Gemini Quota Is Available
+---------------------------------------------------------
+
+Remove `--retrieval-only` to test final answers:
+
+python test_query.py --patient-id P456 "Who is the patient?"
+python test_query.py --patient-id P982 "Who is the patient?"
+python test_query.py --patient-id P456 "What allergies are documented?"
+python test_query.py --patient-id P982 "What allergies are documented?"
+python test_query.py --patient-id P456 "Summarize the patient clinically."
+python test_query.py --patient-id P982 "Summarize the patient clinically."
+python test_query.py --patient-id P123 "What medications is the patient taking?"
+python test_query.py --patient-id P123 "What lab values were elevated?"
+python test_query.py --patient-id P456 "What is the patient's blood type?"
+
+Expected:
+- Non-refusal questions should answer with inline citations like [1].
+- Unsupported questions should return REFUSED.
+- If Gemini quota is exhausted, CLI prints:
+  UNAVAILABLE: Gemini quota is exhausted. Retrieved chunks above are still valid.
+
+
+11. Quick Pass/Fail Criteria
+----------------------------
+
+PASS:
+- PDF extraction debug finds patient_name, DOB, age, sex, history, allergies.
+- P456 demographic queries retrieve PATIENT DEMOGRAPHICS at rank 1.
+- P982 demographic queries retrieve PATIENT DEMOGRAPHICS at rank 1.
+- P456 allergy queries retrieve ALLERGIES.
+- P982 allergy queries retrieve ALLERGIES.
+- P456 PMH/smoking queries retrieve PAST MEDICAL HISTORY.
+- P982 PMH/smoking queries retrieve PAST MEDICAL HISTORY.
+- P123 med queries retrieve Sample Meds.
+- P123 lab queries retrieve Sample Labs.
+- Unsupported questions refuse when synthesis is available.
+
+FAIL:
+- Demographics query retrieves medication-only chunks first.
+- patient_name is missing from final chunk metadata.
+- DISCHARGE SUMMARY is classified as medications.
+- P456 returns zero chunks after ingest.
+- Unsupported questions hallucinate answers not in context.

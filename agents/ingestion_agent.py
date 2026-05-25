@@ -20,8 +20,32 @@ from core.vector_store import ChunkRow, upsert_chunks
 from db.models import Document
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 class IngestionError(Exception):
     """Raised when the ingestion pipeline fails. Wraps the underlying cause."""
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.is_file():
+        return
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if not key or not value:
+            continue
+        if key not in os.environ or not os.environ[key].strip():
+            os.environ[key] = value
+
+
+def _load_env_files() -> None:
+    _load_env_file(REPO_ROOT / ".env")
+    _load_env_file(REPO_ROOT / ".env.example")
 
 
 async def ingest_document(
@@ -123,6 +147,8 @@ async def ingest_document(
 
 
 def _cli() -> None:
+    _load_env_files()
+
     parser = argparse.ArgumentParser(
         description="Ingest a single document into the medical records RAG system."
     )

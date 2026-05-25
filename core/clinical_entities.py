@@ -79,6 +79,13 @@ _RISK_FACTORS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 _DATE_PATTERN = r"(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})"
+_NAME_TOKEN_PATTERN = r"(?:[A-Z][A-Za-z'.-]*|[A-Z]\.)"
+_NAME_VALUE_PATTERN = rf"{_NAME_TOKEN_PATTERN}(?:\s+{_NAME_TOKEN_PATTERN}){{1,5}}?"
+_NAME_LABEL_PATTERN = r"(?:patient\s+name|pt\.?\s+name|full\s+name|name|patient)"
+_NEXT_DEMOGRAPHIC_LABEL_PATTERN = (
+    r"(?:patient\s+id|mrn|dob|date\s+of\s+birth|birth\s+date|age|sex|gender|"
+    r"admission\s+date|discharge\s+date|length\s+of\s+stay)\b"
+)
 
 
 def _normalize(text: str) -> str:
@@ -121,14 +128,11 @@ def _extract_demographics(text: str, section_category: str | None) -> dict[str, 
     demographics: dict[str, str] = {}
 
     name_match = re.search(
-        r"(?i)\b(?:patient\s+name|name)\s*[:\-]\s*([A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){1,3})",
+        rf"(?i)\b{_NAME_LABEL_PATTERN}\s*[:\-]\s*"
+        rf"({_NAME_VALUE_PATTERN})"
+        rf"(?=\s+{_NEXT_DEMOGRAPHIC_LABEL_PATTERN}|[;,\n]|$)",
         text,
     )
-    if not name_match and section_category == "demographics":
-        name_match = re.search(
-            r"(?i)\bpatient\s*[:\-]\s*([A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){1,3})",
-            text,
-        )
     if name_match:
         demographics["patient_name"] = name_match.group(1).strip(" .,")
 
@@ -224,13 +228,13 @@ def format_clinical_entities(entities: ClinicalEntities) -> str:
     demographics = entities.get("demographics")
     if isinstance(demographics, dict) and demographics:
         ordered_keys = ("patient_name", "age", "sex", "DOB")
-        values = [
+        demographic_values = [
             f"{key}: {demographics[key]}"
             for key in ordered_keys
             if demographics.get(key)
         ]
-        if values:
-            lines.append(f"Demographics: {', '.join(values)}")
+        if demographic_values:
+            lines.append(f"Demographics: {', '.join(demographic_values)}")
 
     labels = (
         ("diagnoses", "Diagnoses"),
@@ -241,8 +245,8 @@ def format_clinical_entities(entities: ClinicalEntities) -> str:
         ("risk_factors", "Risk factors"),
     )
     for key, label in labels:
-        values = entities.get(key)
-        if isinstance(values, list) and values:
-            lines.append(f"{label}: {', '.join(values)}")
+        entity_values = entities.get(key)
+        if isinstance(entity_values, list) and entity_values:
+            lines.append(f"{label}: {', '.join(entity_values)}")
 
     return "\n".join(lines)

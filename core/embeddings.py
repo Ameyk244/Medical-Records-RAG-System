@@ -1,10 +1,8 @@
 """Voyage AI embedding wrapper — voyage-3-large only."""
 
-import voyageai
-import voyageai.error
+from typing import Any
 
-EMBEDDING_MODEL = "voyage-3-large"
-EMBEDDING_DIM = 1024
+from core.embedding_config import EMBEDDING_DIM, EMBEDDING_MODEL
 
 _BATCH_SIZE = 128
 
@@ -13,11 +11,13 @@ class EmbeddingError(Exception):
     """Raised when the Voyage API call fails after the SDK's internal retries."""
 
 
-_client: voyageai.AsyncClient | None = None
+_client: Any | None = None
 
 
-def _get_client() -> voyageai.AsyncClient:
+def _get_client() -> Any:
     global _client
+    import voyageai  # type: ignore[import-not-found,import-untyped]
+
     if _client is None:
         _client = voyageai.AsyncClient()
     return _client
@@ -29,6 +29,8 @@ async def embed_texts(texts: list[str], input_type: str = "document") -> list[li
 
     if not texts:
         return []
+
+    import voyageai.error  # type: ignore[import-not-found,import-untyped]
 
     client = _get_client()
     results: list[list[float]] = []
